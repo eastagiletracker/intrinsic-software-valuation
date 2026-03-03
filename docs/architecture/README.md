@@ -8,12 +8,11 @@ This folder captures structural decisions, documentation architecture, and futur
 
 ## Contents Overview
 
-This folder currently has no detailed architecture documents yet.
+- `architecture.md` — high-level implementation architecture: folder structure, layer responsibilities, dependency rules, use-case analysis, and architectural options.
+- `techstack.md` — technology stack decision: TypeScript, Node.js 24 LTS, pnpm, and planned library choices.
 
-Suggested future content:
-- decision notes (context, options, chosen direction, rationale),
-- information architecture and folder conventions,
-- technology and implementation strategy once selected.
+Future content:
+- decision notes (context, options, chosen direction, rationale).
 
 ## How to Use
 

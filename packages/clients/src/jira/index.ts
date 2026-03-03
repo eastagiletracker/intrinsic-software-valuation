@@ -1,0 +1,2 @@
+// Jira client adapter
+export {};
