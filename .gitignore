@@ -1,0 +1,10 @@
+# Data directory — local, unversioned files
+data/*
+!data/README.md
+!data/.gitkeep
+
+# Node.js / pnpm
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-debug.log
