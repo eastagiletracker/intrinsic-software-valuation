@@ -25,9 +25,15 @@ const parser = new XMLParser({
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Strip HTML tags, returning plain text. */
+/** Strip HTML tags, returning plain text. Repeats until no tags remain. */
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").trim();
+  let result = html;
+  let previous: string;
+  do {
+    previous = result;
+    result = result.replace(/<[^>]*>/g, "");
+  } while (result !== previous);
+  return result.trim();
 }
 
 /** Convert RFC 2822 date string to ISO 8601. */
