@@ -80,7 +80,6 @@ For architecture rationale, see `docs/architecture/architecture.md`.
 - Use clear headings and concise language.
 - Make assumptions explicit.
 - Avoid mixing unrelated topics in one file.
-- **Do not name specific clients or customers in any globally committed `README.md` or documentation file.** Client names belong only in gitignored project-specific subfolders (e.g. `data/<client>/`).
 
 ## Pull request guidance
 
