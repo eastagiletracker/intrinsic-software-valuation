@@ -31,6 +31,7 @@ If instructions conflict, follow the higher-priority source and keep changes min
 - Avoid broad refactors for small tasks.
 - Keep terminology aligned with the glossary and concept docs.
 - Make assumptions explicit when information is incomplete.
+- **Never name specific clients or customers in globally committed `README.md` or documentation files.** Client-specific names must stay inside gitignored project subfolders (e.g. `data/<client>/`).
 
 ## Handoff expectation
 

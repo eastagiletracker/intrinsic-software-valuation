@@ -14,10 +14,29 @@ Contributions are welcome for:
 
 ## Repository structure
 
-Current top-level structure:
-- `docs/`
-  - `concept/`
-  - `architecture/`
+Top-level layout:
+
+- `docs/` — project documentation
+  - `concept/` — ISV method chapters and glossary
+  - `architecture/` — architecture decisions and high-level design
+- `packages/` — pnpm workspace monorepo (one package per architecture layer)
+  - `domain/` (`@isv/domain`) — Zod schemas, shared types
+  - `clients/` (`@isv/clients`) — external system adapters (Jira, LLM, Git, time tracking, static analysis)
+  - `services/` (`@isv/services`) — business logic per ISV phase
+  - `pipelines/` (`@isv/pipelines`) — use-case orchestration
+  - `interfaces/` — delivery mechanisms (CLI, API) — added as separate packages later
+- `data/` — local, gitignored data files (time tracking exports)
+
+### Source code conventions
+
+- Dependencies flow inward: `interfaces/` → `pipelines/` → `services/` → `clients/` → external. All layers depend on `domain/`.
+- **Dependency rule is enforced by pnpm workspaces** — each package declares its internal dependencies explicitly in `package.json`.
+- `@isv/domain` has zero dependencies on other packages.
+- `interfaces/` never calls `services/` or `clients/` directly — always through a pipeline.
+- `pipelines/` never calls `clients/` directly — always through a service.
+- Services are stateless: input in, output out.
+- Domain types are defined as Zod schemas; TypeScript types are inferred via `z.infer<>`.
+- Each new subfolder requires its own `README.md`.
 
 As the project grows, keep structure explicit and easy to navigate.
 
@@ -43,14 +62,16 @@ For every change that creates, removes, moves, or significantly updates folder c
 
 Treat `README.md` updates as part of the same change, not as a later follow-up.
 
-## Technology status
+## Technology stack
 
-There is currently no committed runtime/application tech stack yet.
+- **Language**: TypeScript (ESM-only)
+- **Runtime**: Node.js 24 LTS
+- **Package manager**: pnpm (workspace monorepo)
+- **Schemas**: Zod (source of truth for domain types)
+- **Build**: `tsc` for type checking, `tsx` for execution — no bundling in MVP
 
-Until a stack is chosen:
-- prefer plain Markdown for documentation,
-- avoid introducing build tools or frameworks without prior alignment,
-- document any proposed tech decision in `docs/architecture/`.
+For the full decision record, see `docs/architecture/techstack.md`.
+For architecture rationale, see `docs/architecture/architecture.md`.
 
 ## Content style guidelines
 
@@ -59,6 +80,7 @@ Until a stack is chosen:
 - Use clear headings and concise language.
 - Make assumptions explicit.
 - Avoid mixing unrelated topics in one file.
+- **Do not name specific clients or customers in any globally committed `README.md` or documentation file.** Client names belong only in gitignored project-specific subfolders (e.g. `data/<client>/`).
 
 ## Pull request guidance
 

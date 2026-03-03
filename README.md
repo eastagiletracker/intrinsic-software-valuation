@@ -13,10 +13,10 @@ The goal is to create a transparent, explainable valuation framework that can be
 
 ## Overview
 
-Current content is documentation-centric and organized in `docs/`:
+### Documentation (`docs/`)
 
 - `docs/concept/` — core ISV concepts and method chapters
-- `docs/architecture/` — architecture-related material and design decisions
+- `docs/architecture/` — architecture decisions and high-level design
 
 The `concept` series currently includes:
 - Big Picture
@@ -26,6 +26,22 @@ The `concept` series currently includes:
 - Valuation
 - Historical Calibration
 - Glossary
+
+### Source Code (`packages/`)
+
+pnpm workspace monorepo with one package per architecture layer:
+
+- `packages/domain/` (`@isv/domain`) — Zod schemas, shared types (zero internal dependencies)
+- `packages/clients/` (`@isv/clients`) — external system adapters (Jira, LLM, Git, time tracking, static analysis)
+- `packages/services/` (`@isv/services`) — business logic per ISV phase (stateless)
+- `packages/pipelines/` (`@isv/pipelines`) — use-case orchestration (standalone ISV calculation, historical calibration)
+- `packages/interfaces/` — delivery mechanisms (CLI, REST API / MCP server) — added as separate packages later
+
+For architectural rationale, see `docs/architecture/architecture.md`. For tech stack details, see `docs/architecture/techstack.md`.
+
+### Data (`data/`)
+
+Local, gitignored directory for time tracking exports and temporary pipeline artifacts.
 
 ## Usage
 
@@ -46,9 +62,17 @@ Typical usage patterns:
 3. Add or update documents in small, reviewable changes.
 4. Follow collaboration rules in `CONTRIBUTING.md`.
 
-## Status
+## Tech Stack
 
-This repository currently does **not** define a fixed implementation tech stack. It is focused on domain concepts, structure, and shared language first.
+TypeScript, Node.js 24 LTS, pnpm workspaces. Zod for domain schemas. See `docs/architecture/techstack.md` for the full decision record.
+
+## Getting Started
+
+```bash
+pnpm install      # install dependencies and link workspace packages
+pnpm check        # type-check all packages (tsc --build)
+pnpm test         # run tests across all packages
+```
 
 For conventions and contribution workflow, see:
 - `CONTRIBUTING.md`

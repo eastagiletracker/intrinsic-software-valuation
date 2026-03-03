@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/domain" },
+    { "path": "packages/clients" },
+    { "path": "packages/services" },
+    { "path": "packages/pipelines" }
+  ]
+}
