@@ -1,104 +1,100 @@
-# **ISV Engine: Valuation (Calculation Engine)**
+# ISV Engine: Valuation (Calculation Engine)
 
-## **1\. Classification and Purpose**
+## Purpose and Context
 
-The **Valuation Engine** (Phase 3 of ISV automation) is the mathematical core of the value-based pricing model. It transforms identified architectural gaps (from the **Gap Analyzer**) and technical system metrics (from the **Fact Finder**) into a standardized, dimensionless value: the **Intrinsic Software Value (ISV)**.
+The Valuation Engine is phase 3 of ISV automation and the mathematical core of the value-based model. It transforms architectural gaps from the Gap Analyzer and technical metrics from the Fact Finder into a standardized, dimensionless value: Intrinsic Software Value (ISV).
 
-This value represents the **structural size and complexity** of a requirement, free from subjective time estimates.
+This value represents the structural size and complexity of a requirement without relying on subjective time estimates.
 
-## ---
+## Core Formula (Version 3.3)
 
-**2\. The Core Formula (Version 3.3)**
+The calculation combines functional value (what is built) and technical leverage (how hard the intervention is in the existing architecture).
 
-The calculation is logically divided into two blocks: the functional value (what is being built?) and the technical leverage (how difficult is the intervention in the existing architecture?).
+$$
+ISV = ((A1 \times A2) + B1) \times (C1 \times C2) \times D3
+$$
 
-**ISV \= ((A1 \* A2) \+ B1) \* (C1 \* C2) \* D3**
+- PO value (functional value): `((A1 * A2) + B1)`
+- Architecture factor (technical leverage and risk): `(C1 * C2)`
+- Quality multiplier: `D3`
 
-* **PO Value (Functional Value):** ((A1 \* A2) \+ B1)  
-* **Arch Factor (Technical Leverage & Risk):** (C1 \* C2)  
-* **Quality Multiplier:** D3
+## ISV Factors and Metrics
 
-## ---
+### Functional Value (Business and Feature Gravity)
 
-**3\. ISV Factors and Metrics**
+This block evaluates content complexity of a ticket.
 
-### **3.1 Functional Value (Business / Feature Gravity)**
+- `A1` (Data Value): Effort on entity and data-model layer.
+  - `1.0`: Known entities, read-only, pure display.
+  - `3.0`: Create or edit a single entity.
+  - `6.0`: Schema expansion or complex transaction handling, including migrations and rollback strategy.
+- `A2` (UX Multiplier): Depth of user interaction.
+  - `1.0`: Headless (no UI), neutral multiplier.
+  - `1.5`: Standard component integration.
+  - `3.0`: Custom UI with complex client state.
+- `B1` (Logic Value): Algorithmic depth and transformation complexity.
+  - Range: `0.0` to `8.0`.
+  - Examples: `0.0` pass-through routing, `3.0` conditional logic or validation, `8.0` heavy computation or AI.
 
-This part evaluates the content requirement of the ticket.
+### Technical Leverage (Architecture and Legacy Friction)
 
-* **A1 (Data Value):** The architectural effort at the database and entity level.  
-  * **1.0:** Entities are known, Read-Only, pure display.  
-  * **3.0:** Editing/creating a single entity.  
-  * **6.0:** Schema expansion (Data Modeling Change) or complex transactions required. *Note: Covers effort for migration scripts and rollback strategies.*  
-* **A2 (UX Value \- Multiplier for Data):** Evaluates the depth of user interaction.  
-  * **1.0:** Headless (No UI). Acts as a neutral factor: Data effort (A1) remains 1:1.  
-  * **1.5:** Use of standard components. Creates a 50% leverage on A1 through frontend integration.  
-  * **3.0:** System break (Custom UI required). Triples the weight of A1 due to complex state management in the client.  
-* **B1 (Logic Value):** Algorithmic depth and data transformation.  
-  * **0.0 to 8.0.**  
-  * **Examples:** 0.0 (Pure pass-through/routing) to 3.0 (Conditional logic/validation) up to 8.0 (Heavy computation/AI).
+This block evaluates intervention depth and systemic risk.
 
-### **3.2 Technical Leverage (Architecture & Legacy Friction)**
+- `C1` (Integration Factor): How deep the architecture cut is.
+  - `1.0`: Local change, no new adapters.
+  - `4.0`: Deep integration requiring a new external adapter.
+  - `5.0`: New major infrastructure components.
+- `C2` (State Factor): Technical debt and system health, derived by the Fact Finder.
+  - Range: `1.0` to `3.0`.
+  - Examples: `1.0` clean and tested, `2.0` moderate debt, `3.0` toxic legacy.
+  - Effect: Risky interventions in toxic systems amplify final ISV.
 
-This part evaluates the risk and architectural intervention.
+### Quality Level
 
-* **C1 (Integration Factor):** How deep is the cut into the architecture?  
-  * **1.0:** Local (Isolated, no new adapters, intervention within the existing system).  
-  * **4.0:** Deep Integration (Adapter missing, connection to a completely new external third-party system required).  
-  * **5.0:** Infra Beast (Building massive new infrastructure components).  
-* **C2 (State Factor / System Risk):** The "penalty factor" for technical debt, automatically determined by the Fact Finder.  
-  * **1.0 to 3.0.**  
-  * **Examples:** 1.0 (Clean code, good coverage), 2.0 (Moderate debt), 3.0 (Toxic, legacy code, God-classes).  
-  * *Dangerous interventions in toxic systems multiply the final value.*
+- `D3` (Definition of Done)
+  - Standard: `1.0`
+  - Increased for stronger requirements, for example `1.3` for mandatory E2E tests or `2.0` for audit/compliance constraints.
 
-### **3.3 Quality Level**
+## Simulations and Case Studies
 
-* **D3 (Definition of Done):**  
-  * Standard: **1.0**.  
-  * Can be increased by architectural requirements (e.g., 1.3 for mandatory E2E tests or 2.0 for audit/compliance requirements).
+These scenarios validate whether the formula produces realistic value relationships.
 
-## ---
+### Scenario: React Component (Frontend Heavy)
 
-**4\. Simulations and Case Studies**
+New interactive calendar with drag and drop, backend provides existing data.
 
-To validate whether the calculation pipeline generates realistic value relationships, we simulate four typical development scenarios.
+- Values: `A1=1.0`, `A2=3.0`, `B1=1.0`, `C1=1.0`, `C2=1.0`, `D3=1.0`
+- PO value: `(1.0 * 3.0) + 1.0 = 4.0`
+- Architecture factor: `1.0 * 1.0 = 1.0`
+- Total ISV: `4.0`
+- Observation: Frontend complexity is represented through `A2=3.0` without architecture penalty.
 
-### **Scenario 1: The "React Component" Case (Frontend Heavy)**
+### Scenario: Salesforce Integration (Integration Heavy)
 
-New interactive calendar component in the frontend (Drag\&Drop). The backend only delivers existing data.
+Push leads from a standard form to a new Salesforce CRM; mapping logic required; adapter missing.
 
-* **Values:** A1 (1.0), A2 (3.0 \- Custom UI), B1 (1.0), C1 (1.0), C2 (1.0), D3 (1.0)  
-* **PO Value:** (1.0 \* 3.0) \+ 1.0 \= 4.0  
-* **Arch Factor:** 1.0 \* 1.0 \= 1.0  
-* **Total ISV \= 4.0**  
-* **Observation:** A pure frontend feature without architectural interventions has a solid base value. The A2 \= 3.0 factor correctly weights the additional effort for complex custom UI.
+- Values: `A1=3.0`, `A2=1.5`, `B1=3.0`, `C1=4.0`, `C2=1.5`, `D3=1.0`
+- PO value: `(3.0 * 1.5) + 3.0 = 7.5`
+- Architecture factor: `4.0 * 1.5 = 6.0`
+- Total ISV: `45.0`
+- Observation: New third-party integration in a moderately indebted backend drives risk and value sharply upward.
 
-### **Scenario 2: The "Salesforce Integration" (Integration Beast)**
+### Scenario: Headless Database Migration (Backend Heavy)
 
-Leads from a standard form are to be pushed into a new Salesforce CRM. Mapping logic required, adapter missing.
+Deep local schema expansion and migration, no UI.
 
-* **Values:** A1 (3.0), A2 (1.5 \- Standard UI), B1 (3.0 \- Mapping Logic), C1 (4.0 \- New Adapter), C2 (1.5 \- Moderate Debt), D3 (1.0)  
-* **PO Value:** (3.0 \* 1.5) \+ 3.0 \= 7.5  
-* **Arch Factor:** 4.0 \* 1.5 \= 6.0  
-* **Total ISV \= 45.0**  
-* **Observation:** The ISV explodes compared to Scenario 1 (\~11x factor). This is architecturally correct: connecting a new third-party system into a moderately maintained backend drives up systemic risk and the true structural value of the architecture.
+- Values: `A1=6.0`, `A2=1.0`, `B1=3.0`, `C1=1.0`, `C2=1.0`, `D3=1.0`
+- PO value: `(6.0 * 1.0) + 3.0 = 9.0`
+- Architecture factor: `1.0 * 1.0 = 1.0`
+- Total ISV: `9.0`
+- Observation: Migration effort is captured in `A1`; if `C2=3.0`, ISV increases to `27.0`.
 
-### **Scenario 3: Headless Database Migration (Backend Heavy)**
+### Scenario: Small Bugfix in Toxic Legacy
 
-A new feature requires deep schema expansions in the local database and a migration but has no UI (provided only via API).
+Small frontend adjustment with pass-through logic in a highly outdated system.
 
-* **Values:** A1 (6.0 \- Schema Expansion), A2 (1.0 \- Headless), B1 (3.0 \- Validation), C1 (1.0), C2 (1.0), D3 (1.0)  
-* **PO Value:** (6.0 \* 1.0) \+ 3.0 \= 9.0  
-* **Arch Factor:** 1.0 \* 1.0 \= 1.0  
-* **Total ISV \= 9.0**  
-* **Deep-Dive:** This honors the architectural effort for migration scripts and rollback strategies (A1=6.0). Since it happens in the existing local DB, C1 remains 1.0. If this were done in a fragile legacy system (C2=3.0), the ISV would triple to 27.0.
-
-### **Scenario 4: The "Small Bugfix" in Toxic Legacy**
-
-A minimal adjustment in the standard frontend (e.g., a new dropdown field) that is passed through. However, the code base (C2) is extremely outdated with God-classes and no tests.
-
-* **Values:** A1 (1.0), A2 (1.5 \- Standard UI), B1 (0.0 \- Pass-Through), C1 (1.0), C2 (3.0 \- Toxic), D3 (1.0)  
-* **PO Value:** (1.0 \* 1.5) \+ 0.0 \= 1.5  
-* **Arch Factor:** 1.0 \* 3.0 \= 3.0  
-* **Total ISV \= 4.5**  
-* **Observation:** The technical debt "penalty" kicks in. A tiny functional change is calculated as being as expensive as a complex React component built from scratch. This forces Product Owners to prioritize architectural refactorings.
+- Values: `A1=1.0`, `A2=1.5`, `B1=0.0`, `C1=1.0`, `C2=3.0`, `D3=1.0`
+- PO value: `(1.0 * 1.5) + 0.0 = 1.5`
+- Architecture factor: `1.0 * 3.0 = 3.0`
+- Total ISV: `4.5`
+- Observation: Technical debt penalty makes even small changes expensive and economically highlights refactoring needs.

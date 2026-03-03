@@ -1,145 +1,129 @@
-# **ISV Engine: Historical Calibration**
+# ISV Engine: Historical Calibration
 
-## **1\. Executive Summary & Naming**
+## Purpose and Context
 
-Once the ISV Engine calculates the structural complexity of a ticket as an abstract value (ISV), this value must be calibrated. This process is called **ISV Calibration**.
+After the ISV Engine calculates structural complexity as an abstract ISV value, calibration translates this value into an empirically grounded rate.
 
-The goal is to determine the **"Ship Rate"**: a stable, empirically proven conversion rate between the abstract ISV unit and the actual time invested. The monetary valuation (in Euros) occurs in a second, decoupled step.
+The goal is to determine the Ship Rate: a stable conversion between ISV points and actual invested time. Monetary valuation in Euros remains a separate, decoupled step.
 
-## ---
+## Input Data (Triangulation)
 
-**2\. Input Data (Triangulation)**
+Calibration uses three data streams from the previous 18 months.
 
-For calibration, we utilize three data streams from the last 18 months:
+### Jira Ticket and Ticket Clustering (Target State)
 
-### **A. Jira Ticket & Ticket Clustering (Target State)**
+To evaluate realistic ship units, the process groups related tickets into ticket clusters instead of evaluating isolated items.
 
-To evaluate a realistic "Ship Unit," the engine does not look at isolated individual tickets but instead forms **Ticket Clusters**:
+- Hierarchical aggregation: A story or task and its subtasks are combined into one logical unit.
+- `T0` logic: Technological starting point is derived from the first relevant Git commit (preferred) or a Jira status transition.
 
-* **Hierarchical Aggregation:** If a requirement consists of a Story/Task (Parent) and several subtasks, these are combined into a single logical unit.  
-* **$T\_0$ Logic:** The technological starting point is determined via the Git First Commit (preferred) or a Jira status change.
+### Code at Time X (Baseline)
 
-### **B. Code at Time X (The Baseline)**
+The Fact Finder performs a historical Git checkout to the exact baseline commit (`T0`) for each cluster.
 
-The **Fact Finder** performs a Git checkout to travel back to the exact baseline commit ($T\_0$) identified for the cluster.
+### Time Tracking (Ground Truth)
 
-### **C. Time Tracking (Ground Truth / Invest)**
+- Metric: Sum of all logged hours across all IDs in the cluster, independent of booking period.
 
-* **Metric:** The sum of all hours logged across **all** IDs within the cluster, regardless of the booking period.
+### Code Changes (Code Change Miner)
 
-### **D. Code Changes (Code Change Miner)**
+Aggregates volume and intensity signals such as LoC, complexity, and distribution entropy.
 
-The "Code Change Miner" aggregates volume and intensity, including Lines of Code (LoC), complexity, and distribution entropy.
+### Scope Definition and Filter Rules
 
-### **E. Scope Definition & Filter Rules**
+- No epic aggregation: The ship unit is a story or task including subtasks.
+- Ignore links: Only explicit parent-subtask hierarchy is considered.
+- Knowledge-Based Value (KBV): Captures hours without code references and hours without explicit ticket references.
 
-* **No Epic Aggregation:** The "Ship Unit" is the ticket (Story/Task) including its subtasks.  
-* **Ignore Links:** Only the explicit Parent-Subtask hierarchy is considered.  
-* **Knowledge-Based Value (KBV):** Captures hours on tickets without code references as well as hours without any explicit ticket reference.
+## Completeness Guarantee and Reconciliation
 
-## ---
+To achieve full congruence between time tracking and value model, every logged hour is categorized.
 
-**3\. Completeness Guarantee & Reconciliation**
+- Reconciliation runs monthly.
+- Data Quality Score (DQS) trend is tracked monthly: $\frac{Matched + KBV}{Total}$.
+- Periods with `DQS < 85%` are flagged through confidence filtering.
 
-To achieve 100% congruence between time tracking and the value model, every logged hour is categorized.
+## Monetary Valuation
 
-* **Reconciliation** occurs monthly.  
-* **Data Quality Score (DQS) & Trend Analysis:** The DQS ($\\frac{Matched \+ KBV}{Total}$) is tracked monthly. Periods with a $DQS \< 85\\%$ are marked via **Confidence Filtering**.
+Monetary valuation combines feature value, knowledge value, and general overhead into a total budget that matches logged hours.
 
-## ---
+## Objective: Stable Empirical Correlation
 
-**4\. Monetary Valuation (The 100% Model)**
+The target is $R^2 > 0.7$ by including change intensity, complexity, and distribution entropy.
 
-The monetary valuation adds Feature Value, Knowledge Value, and General Overhead into a total budget that exactly reflects the logged hours.
+## Interface Specifications (Data Contracts)
 
-## ---
+### Input: ShipUnitCluster (Schema)
 
-**5\. Objective: Stable Empirical Correlation**
+Generated object per story or task after aggregation:
 
-A correlation of $R^2 \> 0.7$ is targeted by incorporating **Change Intensity** (complexity and distribution entropy).
-
-## ---
-
-**6\. Interface Specifications (Data Contracts)**
-
-### **A. Input: ShipUnitCluster (Schema)**
-
-The object generated for each Story/Task after aggregation:
-
-JSON
-
-{  
-  "clusterId": "PROJ-123",  
-  "ids": \["PROJ-123", "PROJ-1231", "PROJ-1232"\],  
-  "metadata": {  
-    "type": "Story",  
-    "storyPoints": 8.0,  
-    "timestamp\_T0": "2024-03-01T10:00:00Z"  
-  },  
-  "isvAnalysis": {  
-    "isvScore": 12.5,  
-    "confidence": 0.92  
-  },  
-  "metrics": {  
-    "totalHours": 32.5,  
-    "gitChanges": {  
-      "locAdded": 450,  
-      "locDeleted": 120,  
-      "filesChanged": 14,  
-      "distributionEntropy": 3,  
-      "cyclomaticComplexityDelta": 42,  
-      "changeIntensityScore": 0.85  
-    }  
-  }  
+```json
+{
+  "clusterId": "PROJ-123",
+  "ids": ["PROJ-123", "PROJ-1231", "PROJ-1232"],
+  "metadata": {
+    "type": "Story",
+    "storyPoints": 8.0,
+    "timestamp_T0": "2024-03-01T10:00:00Z"
+  },
+  "isvAnalysis": {
+    "isvScore": 12.5,
+    "confidence": 0.92
+  },
+  "metrics": {
+    "totalHours": 32.5,
+    "gitChanges": {
+      "locAdded": 450,
+      "locDeleted": 120,
+      "filesChanged": 14,
+      "distributionEntropy": 3,
+      "cyclomaticComplexityDelta": 42,
+      "changeIntensityScore": 0.85
+    }
+  }
 }
+```
 
-## ---
+## Calibration Workflow (Implementation Path)
 
-**7\. Calibration Workflow (Implementation Path)**
+1. Cluster-centric ingest based on ticket lifecycle.
+2. Triple matching: baseline checkout, ISV run, and Git analysis.
+3. Reconciliation and overhead allocation.
+4. Statistical calibration and `shipRateHoursPerIsv` calculation.
 
-1. **Cluster-Centric Ingest:** Aggregation based on ticket lifecycles.  
-2. **Triple-Matching:** Baseline checkout, ISV run, and Git analysis.  
-3. **Reconciliation:** Allocation of overhead.  
-4. **Statistical Calibration:** Calculation of the shipRateHoursPerIsv.
+## Data Standard and Parsing Logic for Time Tracking
 
-## ---
+A standardized parser transforms raw time logs (L0) into usable investment data.
 
-**8\. Data Standard & Parsing Logic for Time Tracking**
+### Target Format: StandardizedTimeEntry
 
-A standardized parser process is implemented to transform time logs (L0 data) into usable investment data.
-
-### **A. Target Format: StandardizedTimeEntry**
-
-JSON
-
-{  
-  "entryId": "UUID-999",  
-  "timestamp": "2024-03-05T14:00:00Z",  
-  "durationHours": 4.5,  
-  "rawComment": "Work on PROJ-123 and PROJ-124 Refactoring",  
-  "detectedIds": \["PROJ-123", "PROJ-124"\],  
-  "attributionType": "MULTI\_ID\_SPLIT"  
+```json
+{
+  "entryId": "UUID-999",
+  "timestamp": "2024-03-05T14:00:00Z",
+  "durationHours": 4.5,
+  "rawComment": "Work on PROJ-123 and PROJ-124 Refactoring",
+  "detectedIds": ["PROJ-123", "PROJ-124"],
+  "attributionType": "MULTI_ID_SPLIT"
 }
+```
 
-### **B. ID Attribution Strategies (Prioritization)**
+### ID Attribution Strategies (Prioritization)
 
-* **Direct Match:** If the comment contains exactly one ID belonging to a known cluster \-\> 100% attribution.  
-* **Cluster Match:** If the comment contains a subtask ID \-\> Automatic assignment to the parent story’s cluster.  
-* **Multi-ID Split:** If multiple IDs from **different** clusters are found:  
-  * **Default:** Hours are distributed evenly across all mentioned clusters.  
-  * **Threshold:** If more than 3 IDs are found in a short comment, the entry is automatically marked as UNLINKED\_OVERHEAD.  
-* **No-ID Catch-all:** Time logs without a recognizable ticket ID automatically flow into the **Knowledge-Based Value (KBV)** for the period. This includes general activities like meetings, admin, and conceptual work not explicitly linked to an architectural delta.
+- Direct match: Exactly one known ID in comment means full attribution.
+- Cluster match: Subtask ID maps automatically to parent cluster.
+- Multi-ID split: If IDs from different clusters appear, distribute hours evenly by default.
+- Threshold rule: More than 3 IDs in a short comment becomes `UNLINKED_OVERHEAD`.
+- No-ID catch-all: Entries without recognizable IDs go into period KBV.
 
-### **C. Exception Handling**
+### Exception Handling
 
-* **Invalid ID Match:** IDs that match the regex but do not exist in Jira (typos) are logged and treated as UNLINKED\_OVERHEAD (data trash).  
-* **Ambivalent Entries:** Any entry without an ID is defined as KBV. Content-based review of comments is omitted in favor of statistical stability.
+- Invalid ID match: Regex match without Jira existence is logged as `UNLINKED_OVERHEAD`.
+- Ambivalent entries: Entries without IDs are classified as KBV; no semantic review of comments is performed.
 
-### **D. Data Cleaning (L1 Layer)**
+### Data Cleaning (L1 Layer)
 
-Before data enters the correlation analysis, "zero-performance" entries are removed:
+Before correlation analysis, remove zero-performance entries:
 
-* Entries \< 0.1h (rounding artifacts).  
-* Entries on weekends/holidays without Git activity (potential "late entries" lacking architectural context).
-
-Would you like me to create a summary table of the key ISV metrics or help you draft the English version of the Glossary as well?
+- Entries below `0.1h` (rounding artifacts).
+- Weekend or holiday entries without Git activity (likely late bookings without architecture context).
