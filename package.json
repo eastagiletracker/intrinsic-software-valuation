@@ -5,7 +5,9 @@
   "scripts": {
     "check": "tsc --build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:realworld": "vitest run --config vitest.realworld.config.ts",
+    "test:all": "vitest run --config vitest.all.config.ts"
   },
   "devDependencies": {
     "tsx": "^4.0.0",
