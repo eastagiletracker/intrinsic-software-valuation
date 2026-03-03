@@ -1,0 +1,194 @@
+import { readdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
+
+import type { Result, Ticket } from "@isv/domain";
+
+import type { TicketClient } from "./client.js";
+import type { TicketClientConfig } from "./client-config.schema.js";
+import { JiraXmlAdapter } from "./jira-xml/index.js";
+import type { TicketPort } from "./port.js";
+import type { TicketQuery } from "./query.schema.js";
+
+// ---------------------------------------------------------------------------
+// File discovery
+// ---------------------------------------------------------------------------
+
+/** File extensions accepted per raw format. */
+const FORMAT_EXTENSIONS: Record<string, string[]> = {
+  "jira-xml": [".xml"],
+};
+
+/**
+ * Discover matching source files in `data/<dataFolderName>/tickets/`.
+ * Only top-level files with the expected extension are returned.
+ */
+async function discoverFiles(
+  dataFolderName: string,
+  extensions: string[],
+): Promise<string[]> {
+  const dir = resolve("data", dataFolderName, "tickets");
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    // Directory does not exist → no files
+    return [];
+  }
+  return entries
+    .filter((f) => extensions.some((ext) => f.endsWith(ext)))
+    .sort()
+    .map((f) => join(dir, f));
+}
+
+// ---------------------------------------------------------------------------
+// Adapter resolution
+// ---------------------------------------------------------------------------
+
+function resolveAdapter(rawFormat: string): TicketPort {
+  switch (rawFormat) {
+    case "jira-xml":
+      return new JiraXmlAdapter();
+    default:
+      throw new Error(
+        `Unknown ticket raw format: "${rawFormat}". ` +
+          'Supported formats: "jira-xml".',
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Filtering helpers
+// ---------------------------------------------------------------------------
+
+function filterTickets(
+  tickets: Ticket[],
+  query: TicketQuery | undefined,
+): Ticket[] {
+  if (!query) return tickets;
+
+  switch (query.mode) {
+    case "all":
+      return tickets;
+
+    case "byTicketNumbers": {
+      const idSet = new Set(query.ticketIds);
+      return tickets.filter((t) => idSet.has(t.ticketId));
+    }
+
+    case "withSubtasks": {
+      const parentIdSet = new Set(query.parentIds);
+
+      // Build parent → children index
+      const childrenByParent = new Map<string, Ticket[]>();
+      for (const ticket of tickets) {
+        if (ticket.parentId) {
+          const siblings = childrenByParent.get(ticket.parentId) ?? [];
+          siblings.push(ticket);
+          childrenByParent.set(ticket.parentId, siblings);
+        }
+      }
+
+      // Collect parents + direct children
+      const resultMap = new Map<string, Ticket>();
+      for (const pid of parentIdSet) {
+        const parent = tickets.find((t) => t.ticketId === pid);
+        if (parent) {
+          resultMap.set(parent.ticketId, parent);
+        }
+        const children = childrenByParent.get(pid) ?? [];
+        for (const child of children) {
+          resultMap.set(child.ticketId, child);
+        }
+      }
+
+      return [...resultMap.values()];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deduplication helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Deduplicate tickets by `ticketId`, keeping the one with the latest
+ * `updatedAt` timestamp when duplicates occur (e.g. from paginated exports).
+ */
+function deduplicateTickets(tickets: Ticket[]): Ticket[] {
+  const map = new Map<string, Ticket>();
+  for (const ticket of tickets) {
+    const existing = map.get(ticket.ticketId);
+    if (
+      !existing ||
+      new Date(ticket.updatedAt).getTime() >
+        new Date(existing.updatedAt).getTime()
+    ) {
+      map.set(ticket.ticketId, ticket);
+    }
+  }
+  return [...map.values()];
+}
+
+// ---------------------------------------------------------------------------
+// DefaultTicketClient
+// ---------------------------------------------------------------------------
+
+/**
+ * Default implementation of `TicketClient`.
+ *
+ * Parses all discovered source files via the resolved adapter, merges
+ * and deduplicates tickets, then applies query filters on demand.
+ */
+class DefaultTicketClient implements TicketClient {
+  private readonly adapter: TicketPort;
+  private readonly files: string[];
+
+  constructor(adapter: TicketPort, files: string[]) {
+    this.adapter = adapter;
+    this.files = files;
+  }
+
+  async getTickets(query?: TicketQuery): Promise<Result<Ticket[]>> {
+    try {
+      const batches = await Promise.all(
+        this.files.map((f) => this.adapter.parse(f)),
+      );
+      const allTickets = deduplicateTickets(batches.flat());
+      const filtered = filterTickets(allTickets, query);
+
+      return { success: true, data: filtered };
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: "TICKET_PARSE_FAILED",
+          message: err instanceof Error ? err.message : String(err),
+          source: "ticket-client",
+        },
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a ready-to-use `TicketClient` from project-specific config.
+ *
+ * The factory resolves the correct adapter based on `rawFormat`, discovers
+ * source files inside `data/<dataFolderName>/tickets/`, and returns
+ * a client instance that can be queried with structured filter criteria.
+ *
+ * @param config - Project-specific configuration (data folder, ticket prefix, raw format).
+ * @returns A `Promise` resolving to an initialised `TicketClient`.
+ */
+export async function createTicketClient(
+  config: TicketClientConfig,
+): Promise<TicketClient> {
+  const adapter = resolveAdapter(config.rawFormat);
+  const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
+  const files = await discoverFiles(config.dataFolderName, extensions);
+  return new DefaultTicketClient(adapter, files);
+}
