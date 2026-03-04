@@ -69,10 +69,69 @@ TypeScript, Node.js 24 LTS, pnpm workspaces. Zod for domain schemas. See `docs/a
 
 ## Getting Started
 
+### Prerequisites
+
+The ISV Engine requires several tools to be installed locally. Run the setup check to verify everything at once:
+
+```bash
+pnpm run check:setup     # or: ./scripts/check-setup.sh
+```
+
+#### Core toolchain
+
+| Tool | Minimum version | Install |
+| ---- | --------------- | ------- |
+| **Node.js** | ≥ 24 LTS | `nvm install 24` or [nodejs.org](https://nodejs.org) |
+| **pnpm** | ≥ 9 | `corepack enable` (bundled with Node.js) |
+| **Git** | any recent | `brew install git` or [git-scm.com](https://git-scm.com) |
+
+#### GitHub Copilot CLI (LLM adapter)
+
+The Architecture Scanner and Gap Analyzer use GitHub Copilot as the LLM backend. The adapter invokes `gh copilot` on the command line.
+
+1. **Install the GitHub CLI:**
+
+   ```bash
+   brew install gh
+   ```
+
+2. **Authenticate:**
+
+   ```bash
+   gh auth login          # follow the browser-based flow
+   gh auth status         # verify: "Logged in to github.com"
+   ```
+
+3. **Install the Copilot extension:**
+
+   ```bash
+   gh extension install github/gh-copilot
+   ```
+
+4. **Verify:**
+
+   ```bash
+   gh copilot -p "Say hello" -s      # should print a response
+   ```
+
+> **Note:** A GitHub Copilot licence (Individual, Business, or Enterprise) is required. The adapter uses `gh copilot -p "<prompt>" -s` for non-interactive, script-friendly output.
+
+#### Static analysis tools
+
+The Status Quo Miner shells out to three CLI tools for code health metrics:
+
+| Tool | Purpose | Install |
+| ---- | ------- | ------- |
+| **scc** | Lines of code, file count, cyclomatic complexity | `brew install scc` |
+| **jscpd** | Copy/paste detection (duplication %) | `npm install -g jscpd` |
+| **knip** | Dead code / unused export detection | `npm install -g knip` |
+
+### Install & verify
+
 ```bash
 pnpm install      # install dependencies and link workspace packages
-pnpm check        # type-check all packages (tsc --build)
-pnpm test         # run tests across all packages
+pnpm run check    # type-check all packages (tsc --build)
+pnpm test         # run unit + boundary tests (Tiers 1–3)
 ```
 
 ## CLI Usage
@@ -90,5 +149,6 @@ isv calibrate
 See `packages/interfaces/cli/README.md` for configuration details.
 
 For conventions and contribution workflow, see:
+
 - `CONTRIBUTING.md`
 - `AGENTS.md`
