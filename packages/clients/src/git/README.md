@@ -21,8 +21,8 @@ import type { RepositoryRef } from "@isv/domain";
 interface GitClientConfig {
   /** Repositories to manage. At least one required. */
   repositories: RepositoryRef[];
-  /** Base directory for bare clones and worktrees. Default: os.tmpdir()/isv-git/ */
-  basePath?: string;
+  /** Name of the client data folder inside data/. Resolves to data/<dataFolderName>/git/ */
+  dataFolderName: string;
 }
 ```
 
@@ -39,6 +39,7 @@ const client = await createGitClient({
     { repositoryId: "backend-service", url: "git@github.com:org/backend.git" },
     { repositoryId: "cms", localPath: "/opt/repos/cms" },
   ],
+  dataFolderName: "my-client",
 });
 ```
 
@@ -253,6 +254,7 @@ const git = await createGitClient({
     { repositoryId: "frontend", url: "git@github.com:org/frontend.git" },
     { repositoryId: "backend", url: "git@github.com:org/backend.git" },
   ],
+  dataFolderName: "my-client",
 });
 
 // Architecture Scanner / Status Quo Miner (snapshot all repos at T0)
@@ -285,6 +287,15 @@ await git.destroy();
 | File | Description |
 |---|---|
 | `README.md` | This document — architecture pattern and design decisions |
+| `port.ts` | `GitPort` interface, `PreparedRepo`, `WorkingTree`, `LogStatsOptions`, `GitLogStats` types |
+| `client.ts` | `GitClient` interface (high-level, multi-repo manager) |
+| `client-config.schema.ts` | `GitClientConfig` Zod schema (`repositories` + `dataFolderName`) |
+| `client-config.schema.test.ts` | Config schema validation tests |
+| `git-worktree.adapter.ts` | `GitWorktreeAdapter` — `GitPort` implementation using `execa` + `git` CLI |
+| `git-worktree.adapter.test.ts` | Unit tests for pure parsing helpers (`parseCommitSha`, `parseLogStats`) |
+| `factory.ts` | `createGitClient()` factory — validates config, prepares repos, returns `GitClient` |
+| `factory.test.ts` | Factory tests (duplicate IDs, local path, missing path) |
+| `git.realworld.test.ts` | Real-world integration test against the ISV Engine repository |
 | `index.ts` | Public re-exports for the module |
 
 ## Open decisions
