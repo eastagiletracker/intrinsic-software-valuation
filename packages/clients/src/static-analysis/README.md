@@ -22,12 +22,21 @@ Provides a `StaticAnalysisPort` (low-level, per-tool interface) and a `StaticAna
 | --- | --- |
 | `port.ts` | `StaticAnalysisPort` — per-tool interface (`scc`, `jscpd`, `knip`) |
 | `client.ts` | `StaticAnalysisClient` — high-level orchestrator returning domain types |
+| `scc-adapter.ts` | `scc` CLI wrapper — parses JSON output → `SccResult` |
+| `jscpd-adapter.ts` | `jscpd` CLI wrapper — parses JSON reporter → `JscpdResult` |
+| `knip-adapter.ts` | `knip` CLI wrapper — parses JSON output → `KnipResult` |
+| `cli-static-analysis.adapter.ts` | `CliStaticAnalysisAdapter` implementing `StaticAnalysisPort` |
+| `factory.ts` | `createStaticAnalysisClient()` factory + mapping helpers |
+| `__fixtures__/` | Sample JSON outputs for each tool (with provenance headers) |
 | `index.ts` | Public re-exports |
 
 ## How to use
 
-1. Implement `StaticAnalysisPort` by wrapping the CLI tools via `execa`.
-2. Wire the adapter into a `StaticAnalysisClient` factory (similar to the Git or LLM client patterns).
-3. The Status Quo Miner service calls `client.analyze(directory)`.
+```typescript
+import { createStaticAnalysisClient } from "@isv/clients";
+
+const client = createStaticAnalysisClient();
+const { structuralFacts, healthScores } = await client.analyze("/path/to/repo");
+```
 
 Entry point and architecture-surface metrics (controllers, views) are collected separately by the Status Quo Miner using file-system pattern matching, not by this client.

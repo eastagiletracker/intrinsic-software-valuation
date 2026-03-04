@@ -1,0 +1,36 @@
+[
+  {
+    "_provenance": "Synthetic fixture based on scc JSON output format. No real client data.",
+    "Name": "TypeScript",
+    "Lines": 12500,
+    "Code": 9800,
+    "Comment": 1200,
+    "Blank": 1500,
+    "Complexity": 450,
+    "Count": 120,
+    "WeightedComplexity": 0,
+    "Files": []
+  },
+  {
+    "Name": "JavaScript",
+    "Lines": 3200,
+    "Code": 2600,
+    "Comment": 300,
+    "Blank": 300,
+    "Complexity": 180,
+    "Count": 45,
+    "WeightedComplexity": 0,
+    "Files": []
+  },
+  {
+    "Name": "JSON",
+    "Lines": 800,
+    "Code": 800,
+    "Comment": 0,
+    "Blank": 0,
+    "Complexity": 0,
+    "Count": 15,
+    "WeightedComplexity": 0,
+    "Files": []
+  }
+]

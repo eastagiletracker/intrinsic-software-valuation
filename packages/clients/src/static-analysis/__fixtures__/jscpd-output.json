@@ -1,0 +1,14 @@
+{
+  "_provenance": "Synthetic fixture based on jscpd JSON reporter output. No real client data.",
+  "statistics": {
+    "total": {
+      "lines": 12400,
+      "sources": 165,
+      "clones": 8,
+      "duplicatedLines": 620,
+      "percentage": 5.0,
+      "newDuplicatedLines": 0,
+      "newClones": 0
+    }
+  }
+}

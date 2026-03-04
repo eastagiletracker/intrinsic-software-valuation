@@ -1,0 +1,13 @@
+{
+  "_provenance": "Synthetic fixture based on knip JSON output format. No real client data.",
+  "files": ["src/unused-helper.ts", "src/legacy/old-module.ts", "src/deprecated.ts"],
+  "dependencies": ["unused-dep-a", "unused-dep-b"],
+  "devDependencies": [],
+  "optionalPeerDependencies": [],
+  "unlisted": {},
+  "binaries": {},
+  "unresolved": {},
+  "exports": {},
+  "types": {},
+  "duplicates": {}
+}
