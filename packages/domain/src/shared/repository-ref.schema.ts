@@ -17,10 +17,14 @@ export const RepositoryRefSchema = z
       ),
     url: z
       .string()
-      .url()
+      .refine(
+        (v) =>
+          /^https?:\/\/.+/.test(v) || /^git@[^:]+:.+/.test(v),
+        { message: "Must be an HTTPS URL or SSH URL (git@host:path)" },
+      )
       .optional()
       .describe(
-        'Git remote URL for cloning, e.g. "https://github.com/org/repo.git"',
+        'Git remote URL for cloning (HTTPS or SSH), e.g. "https://github.com/org/repo.git" or "git@github.com:org/repo.git"',
       ),
     localPath: z
       .string()

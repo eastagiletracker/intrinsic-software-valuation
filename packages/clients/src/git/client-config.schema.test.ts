@@ -24,6 +24,19 @@ describe("GitClientConfigSchema", () => {
     expect(GitClientConfigSchema.parse(config)).toEqual(config);
   });
 
+  it("accepts a config with an SSH URL", () => {
+    const config = {
+      repositories: [
+        {
+          repositoryId: "frontend",
+          url: "git@github.com:org/frontend.git",
+        },
+      ],
+      dataFolderName: "superclient",
+    };
+    expect(GitClientConfigSchema.parse(config)).toEqual(config);
+  });
+
   it("accepts a config with multiple repositories", () => {
     const config = {
       repositories: [
