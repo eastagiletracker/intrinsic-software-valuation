@@ -40,13 +40,19 @@ interface ColumnIndex {
   aufgabe: number;
 }
 
-const EXPECTED_HEADERS: Record<keyof ColumnIndex, string> = {
-  projekt: "Projekt",
-  datum: "Datum",
-  dauer: "Dauer (Stunden)",
-  beschreibung: "Beschreibung",
-  position: "Position",
-  aufgabe: "Aufgabe",
+/**
+ * Patterns for matching Teamleader column headers.
+ *
+ * Uses `startsWith` to tolerate minor typos (e.g. trailing extra paren in
+ * `"Dauer (Stunden))"`) and future format drift.
+ */
+const HEADER_PATTERNS: Record<keyof ColumnIndex, (text: string) => boolean> = {
+  projekt: (t) => t === "Projekt",
+  datum: (t) => t === "Datum",
+  dauer: (t) => t.startsWith("Dauer"),
+  beschreibung: (t) => t === "Beschreibung",
+  position: (t) => t === "Position",
+  aufgabe: (t) => t === "Aufgabe",
 };
 
 // ---------------------------------------------------------------------------
@@ -127,25 +133,27 @@ export function classifyAttribution(idCount: number): AttributionType {
 // Column discovery
 // ---------------------------------------------------------------------------
 
-function buildColumnIndex(headerRow: ExcelJS.Row): ColumnIndex {
+/**
+ * Try to build a column index from a row. Returns `undefined` if the row does
+ * not contain all expected header columns (i.e. it is not the header row).
+ */
+function tryBuildColumnIndex(row: ExcelJS.Row): ColumnIndex | undefined {
   const index: Partial<ColumnIndex> = {};
 
-  headerRow.eachCell((cell, colNumber) => {
+  row.eachCell((cell, colNumber) => {
     const text = String(cell.value ?? "").trim();
-    for (const [key, expected] of Object.entries(EXPECTED_HEADERS) as Array<
-      [keyof ColumnIndex, string]
+    for (const [key, matches] of Object.entries(HEADER_PATTERNS) as Array<
+      [keyof ColumnIndex, (text: string) => boolean]
     >) {
-      if (text === expected) {
+      if (matches(text)) {
         index[key] = colNumber - 1; // convert to 0-based
       }
     }
   });
 
-  for (const key of Object.keys(EXPECTED_HEADERS) as Array<keyof ColumnIndex>) {
+  for (const key of Object.keys(HEADER_PATTERNS) as Array<keyof ColumnIndex>) {
     if (index[key] === undefined) {
-      throw new Error(
-        `Teamleader Excel adapter: missing expected column "${EXPECTED_HEADERS[key]}"`,
-      );
+      return undefined;
     }
   }
 
@@ -199,49 +207,37 @@ function rowToTimeEntry(
  *
  * Reads `.xlsx` files exported from Teamleader, maps columns to `TimeEntry`,
  * applies L1 cleaning, and returns a validated `TimeSheet`.
- *
- * Streaming row iteration via ExcelJS keeps memory usage constant even for
- * files with 2,000+ rows.
  */
 export class TeamleaderExcelAdapter implements TimeTrackingPort {
   /**
    * Parse the Teamleader `.xlsx` file at `filePath` and return a `TimeSheet`.
    */
   async parse(filePath: string): Promise<TimeSheet> {
-    const workbook = new ExcelJS.stream.xlsx.WorkbookReader(filePath, {});
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
     const sourceFile = filePath.split(/[\\/]/).pop() ?? filePath;
 
     const entries: TimeEntry[] = [];
     let rawEntryCount = 0;
     let cols: ColumnIndex | undefined;
-    let headerRowIndex = -1;
 
-    for await (const worksheet of workbook) {
-      let rowIndex = 0;
+    for (const worksheet of workbook.worksheets) {
+      for (let rowIdx = 1; rowIdx <= worksheet.rowCount; rowIdx++) {
+        const row = worksheet.getRow(rowIdx);
 
-      for await (const row of worksheet) {
-        // row 0 (rowIndex 0) is the metadata row ("Export …"); skip it.
-        // row 1 (rowIndex 1) is the header row.
-        if (rowIndex === 0) {
-          rowIndex++;
-          continue;
+        // Auto-detect the header row by probing each row until all expected
+        // columns are found. This handles files with or without a leading
+        // metadata row.
+        if (!cols) {
+          cols = tryBuildColumnIndex(row);
+          continue; // skip the header row (or metadata row) itself
         }
-        if (rowIndex === 1) {
-          headerRowIndex = rowIndex;
-          cols = buildColumnIndex(row);
-          rowIndex++;
-          continue;
-        }
-
-        if (!cols) break;
-        if (headerRowIndex < 0) break;
 
         // Skip visually empty rows
         const allEmpty = (row.values as ExcelJS.CellValue[])
           .slice(1)
           .every((v) => v === null || v === undefined || v === "");
         if (allEmpty) {
-          rowIndex++;
           continue;
         }
 
@@ -250,7 +246,6 @@ export class TeamleaderExcelAdapter implements TimeTrackingPort {
         if (entry !== null) {
           entries.push(entry);
         }
-        rowIndex++;
       }
     }
 

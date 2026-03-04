@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sanitized sample Jira RSS/XML export for testing.
+  Modelled on the real Jira export format but using fictional project data.
+  Used as a committed fixture for adapter and integration tests.
+-->
+<rss version="0.92">
+  <channel>
+    <title>JIRA</title>
+    <link>https://example.atlassian.net/issues/?jql=project+%3D+%22ACME%22</link>
+    <description>An XML representation of a search request</description>
+    <language>en</language>
+    <issue start="0" end="100" total="6"/>
+    <build-info>
+      <version>1001.0.0-SNAPSHOT</version>
+      <build-number>100290</build-number>
+      <build-date>01-01-2026</build-date>
+    </build-info>
+
+    <!-- Story with full fields -->
+    <item>
+      <title>[ACME-100] Implement user dashboard</title>
+      <link>https://example.atlassian.net/browse/ACME-100</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description>&lt;p&gt;Build a dashboard showing key metrics for each user.&lt;/p&gt;</description>
+      <environment></environment>
+      <key id="50001">ACME-100</key>
+      <summary>Implement user dashboard</summary>
+      <type id="10001" iconUrl="https://example.atlassian.net/type/story">Story</type>
+      <priority id="3" iconUrl="https://example.atlassian.net/priority/medium">Medium</priority>
+      <status id="10001" iconUrl="https://example.atlassian.net/status/done" description="">Done</status>
+      <statusCategory id="3" key="done" colorName="green"/>
+      <resolution id="10000">Done</resolution>
+      <assignee accountid="user-001">Dev Alpha</assignee>
+      <reporter accountid="user-002">PM Beta</reporter>
+      <labels>
+        <label>frontend</label>
+        <label>MVP</label>
+      </labels>
+      <created>Mon, 6 Jan 2025 09:00:00 +0100</created>
+      <updated>Fri, 17 Jan 2025 16:00:00 +0100</updated>
+      <due></due>
+      <votes>0</votes>
+      <watches>3</watches>
+      <comment author="user-003" created="Tue, 7 Jan 2025 10:30:00 +0100">&lt;p&gt;Should we include a chart component?&lt;/p&gt;</comment>
+      <comment author="user-001" created="Wed, 8 Jan 2025 08:15:00 +0100">Yes, using the shared chart library.</comment>
+      <customfields>
+        <customfield id="customfield_10026" key="com.atlassian.jira.plugin.system.customfieldtypes:float">
+          <customfieldname>Story Points</customfieldname>
+          <customfieldvalues>
+            <customfieldvalue>5.0</customfieldvalue>
+          </customfieldvalues>
+        </customfield>
+        <customfield id="customfield_10020" key="com.pyxis.greenhopper.jira:gh-lexo-rank">
+          <customfieldname>Rank</customfieldname>
+          <customfieldvalues>
+            <customfieldvalue>1|a0001:</customfieldvalue>
+          </customfieldvalues>
+        </customfield>
+      </customfields>
+      <attachments></attachments>
+      <subtasks></subtasks>
+    </item>
+
+    <!-- Sub-task of ACME-100 -->
+    <item>
+      <title>[ACME-101] Create dashboard layout component</title>
+      <link>https://example.atlassian.net/browse/ACME-101</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description>Build the responsive grid layout for dashboard widgets.</description>
+      <key id="50002">ACME-101</key>
+      <summary>Create dashboard layout component</summary>
+      <type id="10003" iconUrl="https://example.atlassian.net/type/subtask">Sub-Task</type>
+      <parent id="50001">ACME-100</parent>
+      <priority id="3" iconUrl="https://example.atlassian.net/priority/medium">Medium</priority>
+      <status id="10001" iconUrl="https://example.atlassian.net/status/done" description="">Done</status>
+      <statusCategory id="3" key="done" colorName="green"/>
+      <assignee accountid="user-001">Dev Alpha</assignee>
+      <reporter accountid="user-002">PM Beta</reporter>
+      <labels>
+        <label>frontend</label>
+      </labels>
+      <created>Mon, 6 Jan 2025 10:00:00 +0100</created>
+      <updated>Thu, 9 Jan 2025 18:00:00 +0100</updated>
+      <customfields></customfields>
+    </item>
+
+    <!-- Sub-task of ACME-100 -->
+    <item>
+      <title>[ACME-102] Add metrics API integration</title>
+      <link>https://example.atlassian.net/browse/ACME-102</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description>Connect the dashboard widgets to the metrics REST endpoint.</description>
+      <key id="50003">ACME-102</key>
+      <summary>Add metrics API integration</summary>
+      <type id="10003" iconUrl="https://example.atlassian.net/type/subtask">Sub-Task</type>
+      <parent id="50001">ACME-100</parent>
+      <priority id="3" iconUrl="https://example.atlassian.net/priority/medium">Medium</priority>
+      <status id="10002" iconUrl="https://example.atlassian.net/status/inprogress" description="">In Progress</status>
+      <statusCategory id="4" key="indeterminate" colorName="yellow"/>
+      <assignee accountid="user-004">Dev Gamma</assignee>
+      <reporter accountid="user-002">PM Beta</reporter>
+      <created>Mon, 6 Jan 2025 10:30:00 +0100</created>
+      <updated>Fri, 10 Jan 2025 12:00:00 +0100</updated>
+      <customfields></customfields>
+    </item>
+
+    <!-- Bug with comments -->
+    <item>
+      <title>[ACME-200] Login session expires prematurely</title>
+      <link>https://example.atlassian.net/browse/ACME-200</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description>Users report being logged out after 5 minutes of inactivity. Expected timeout is 30 minutes.</description>
+      <key id="50004">ACME-200</key>
+      <summary>Login session expires prematurely</summary>
+      <type id="10004" iconUrl="https://example.atlassian.net/type/bug">Bug</type>
+      <priority id="2" iconUrl="https://example.atlassian.net/priority/high">High</priority>
+      <status id="10003" iconUrl="https://example.atlassian.net/status/open" description="">Open</status>
+      <statusCategory id="2" key="new" colorName="blue-gray"/>
+      <assignee accountid="-1">Unassigned</assignee>
+      <reporter accountid="user-005">QA Delta</reporter>
+      <labels>
+        <label>bug</label>
+        <label>auth</label>
+      </labels>
+      <created>Wed, 15 Jan 2025 14:00:00 +0100</created>
+      <updated>Thu, 16 Jan 2025 09:00:00 +0100</updated>
+      <comment author="user-005" created="Wed, 15 Jan 2025 14:30:00 +0100">&lt;p&gt;Reproduced on Chrome and Firefox. Session cookie &lt;b&gt;max-age&lt;/b&gt; is set to 300 seconds.&lt;/p&gt;</comment>
+      <comment author="user-004" created="Thu, 16 Jan 2025 09:00:00 +0100">Looks like a config issue in the auth service. Checking now.</comment>
+      <customfields></customfields>
+    </item>
+
+    <!-- Task with story points, no subtasks -->
+    <item>
+      <title>[ACME-300] Set up CI pipeline</title>
+      <link>https://example.atlassian.net/browse/ACME-300</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description>Configure GitHub Actions pipeline with lint, type-check, and test stages.</description>
+      <key id="50005">ACME-300</key>
+      <summary>Set up CI pipeline</summary>
+      <type id="10002" iconUrl="https://example.atlassian.net/type/task">Task</type>
+      <priority id="3" iconUrl="https://example.atlassian.net/priority/medium">Medium</priority>
+      <status id="10001" iconUrl="https://example.atlassian.net/status/done" description="">Done</status>
+      <statusCategory id="3" key="done" colorName="green"/>
+      <assignee accountid="user-001">Dev Alpha</assignee>
+      <reporter accountid="user-001">Dev Alpha</reporter>
+      <labels>
+        <label>devops</label>
+      </labels>
+      <created>Thu, 2 Jan 2025 08:00:00 +0100</created>
+      <updated>Mon, 6 Jan 2025 17:00:00 +0100</updated>
+      <customfields>
+        <customfield id="customfield_10026" key="com.atlassian.jira.plugin.system.customfieldtypes:float">
+          <customfieldname>Story Points</customfieldname>
+          <customfieldvalues>
+            <customfieldvalue>3.0</customfieldvalue>
+          </customfieldvalues>
+        </customfield>
+      </customfields>
+    </item>
+
+    <!-- Minimal item — description empty, no labels, no comments -->
+    <item>
+      <title>[ACME-400] Placeholder for backlog grooming</title>
+      <link>https://example.atlassian.net/browse/ACME-400</link>
+      <project id="10001" key="ACME">ACME Platform</project>
+      <description></description>
+      <key id="50006">ACME-400</key>
+      <summary>Placeholder for backlog grooming</summary>
+      <type id="10002" iconUrl="https://example.atlassian.net/type/task">Task</type>
+      <priority id="4" iconUrl="https://example.atlassian.net/priority/low">Low</priority>
+      <status id="10003" iconUrl="https://example.atlassian.net/status/open" description="">Open</status>
+      <statusCategory id="2" key="new" colorName="blue-gray"/>
+      <created>Fri, 17 Jan 2025 12:00:00 +0100</created>
+      <updated>Fri, 17 Jan 2025 12:00:00 +0100</updated>
+      <customfields></customfields>
+    </item>
+
+  </channel>
+</rss>
