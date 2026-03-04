@@ -1,0 +1,58 @@
+{
+  "_provenance": "Synthetic fixture based on GapAnalysisResultSchema. No real client data.",
+  "ticketId": "PROJ-42",
+  "meta": {
+    "isTicketActionable": true,
+    "confidenceScore": 0.85
+  },
+  "architecturalFit": {
+    "canBeImplementedWithExistingPatterns": true,
+    "summary": "The requirement fits within the existing port-adapter architecture."
+  },
+  "identifiedGaps": {
+    "data": {
+      "hasGap": false,
+      "missingEntities": [],
+      "description": "No new entities needed — existing domain models suffice."
+    },
+    "ui": {
+      "hasGap": false,
+      "description": "No UI changes required."
+    },
+    "logic": {
+      "hasGap": true,
+      "description": "New validation logic for input processing required."
+    },
+    "integration": {
+      "hasGap": false,
+      "missingAdapters": [],
+      "description": "No new external integrations needed."
+    }
+  },
+  "requiredModifications": {
+    "architectureExtensions": [],
+    "actionItems": ["Implement input validation service", "Add unit tests"]
+  },
+  "isvScoring": {
+    "A1_Data": {
+      "score": 1,
+      "reasoning": "Read-only access to existing entities."
+    },
+    "A2_UX": {
+      "score": 2,
+      "reasoning": "Standard component integration with existing UI framework."
+    },
+    "B1_Logic": {
+      "score": 2,
+      "reasoning": "Validation and conditional logic required."
+    },
+    "C1_Integration": {
+      "score": 1,
+      "reasoning": "Local change, no new adapters needed."
+    },
+    "D3_Quality": {
+      "score": 1,
+      "reasoning": "Standard Definition of Done."
+    }
+  }
+}

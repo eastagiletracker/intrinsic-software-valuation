@@ -47,6 +47,9 @@ importers:
 
   packages/pipelines:
     dependencies:
+      '@isv/clients':
+        specifier: workspace:*
+        version: link:../clients
       '@isv/domain':
         specifier: workspace:*
         version: link:../domain
