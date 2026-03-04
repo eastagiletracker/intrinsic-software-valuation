@@ -24,12 +24,17 @@ export function parseKnipOutput(json: string): KnipResult {
 /**
  * Run `knip` on a directory and return dead-code metrics.
  *
+ * knip exits with code 1 when it finds unused files/exports, which is the
+ * normal case for most projects. We tolerate non-zero exit codes and parse
+ * the JSON output from stdout.
+ *
  * @param directory - Absolute path to the repository working directory.
  * @returns Parsed `KnipResult`.
  */
 export async function runKnip(directory: string): Promise<KnipResult> {
   const result = await execa("knip", ["--reporter", "json"], {
     cwd: directory,
+    reject: false,
   });
   return parseKnipOutput(result.stdout);
 }
