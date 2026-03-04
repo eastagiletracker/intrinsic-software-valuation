@@ -31,6 +31,7 @@ export async function listProjects(): Promise<ProjectEntry[]> {
     );
   } catch {
     // data/ directory does not exist or is unreadable
+    console.warn("[isv-web] Could not read data/ directory — sidebar will show empty state");
     return [];
   }
 
@@ -48,6 +49,7 @@ export async function listProjects(): Promise<ProjectEntry[]> {
       }
     } catch {
       // Invalid or missing config — skip this directory
+      console.warn(`[isv-web] Skipping data/${slug}: invalid or missing project-config.json`);
     }
   }
 

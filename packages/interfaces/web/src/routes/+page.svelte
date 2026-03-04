@@ -41,8 +41,9 @@
       if (body.success && body.data) {
         projects = body.data;
       }
-    } catch {
+    } catch (e) {
       // Projects failed to load — sidebar will show empty state
+      console.warn('[isv-web] Failed to load projects:', e);
     }
   });
 
