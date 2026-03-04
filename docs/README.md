@@ -10,6 +10,7 @@ This folder contains all documentation that defines, explains, and evolves the I
 
 - `concept/` — core conceptual building blocks, methods, and glossary
 - `architecture/` — architecture notes, structural decisions, and evolution guidance
+- `roadmap/` — implementation roadmap with milestones, quality gates, and review checkpoints
 - `qa-strategy.md` — test philosophy, tier definitions, naming conventions, and rules
 
 ## How to Use
