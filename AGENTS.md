@@ -33,6 +33,16 @@ If instructions conflict, follow the higher-priority source and keep changes min
 - Make assumptions explicit when information is incomplete.
 - **Never name specific clients or customers in globally committed `README.md` or documentation files.** Client-specific names must stay inside gitignored project subfolders (e.g. `data/<client>/`).
 
+## Testing rules
+
+Follow the four-tier strategy in [`docs/qa-strategy.md`](docs/qa-strategy.md).
+
+Key agent rules:
+- When adding a new adapter: create `__fixtures__/` with provenance header, write Tier 2 `*.adapter.test.ts`.
+- When adding a new service or pipeline: write Tier 3 `*.boundary.test.ts`; mock return values must reference a fixture file.
+- Never invent mock data not backed by a committed fixture or domain schema.
+- Never place real client names, ticket IDs, or person names in committed fixtures.
+
 ## Handoff expectation
 
 After making changes, provide a short summary of:

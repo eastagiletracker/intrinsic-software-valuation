@@ -24,7 +24,7 @@ These metrics describe system size and current activity hotspots.
 
 - Volume (code size)
   - Metric: Total lines of code (LoC) and absolute number of files.
-  - Tool: `scc` or `cloc`.
+  - Tool: `scc`.
 - Architecture entry points (proxy for system surface)
   - Metric: Number of defined functional entry points.
   - Note: Highly stable and scalable for historical runs because it does not rely on dynamic parsing.
@@ -42,10 +42,10 @@ These metrics represent codebase health. They strongly correlate with integratio
 
 - Complexity, duplication, and god classes
   - Metric: Average cyclomatic complexity, duplication percentage, and number of files with more than 1,000 lines.
-  - Tool: `scc` (complexity and god classes) plus `jscpd` (duplication score).
+  - Tool: `scc` (complexity, LoC-based god class detection) plus `jscpd` (duplication percentage).
 - Test health and system rot
-  - Metric: Unit test coverage plus outdated or vulnerable dependencies and dead code.
-  - Tool: `JaCoCo` or `Jest` (coverage), `Knip` (dead code for JS/TS), `npm outdated --json` or `mvn versions:display-dependency-updates`.
+  - Metric: Unit test coverage plus dead code.
+  - Tool: `Jest`/`vitest` (coverage), `Knip` (dead code for JS/TS).
 
 ## Output
 

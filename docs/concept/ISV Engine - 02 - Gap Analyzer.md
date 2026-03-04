@@ -8,7 +8,7 @@ Primary objectives:
 
 - Perform a semantic comparison (similarity check): Are requested capabilities already established?
 - Identify structural distance (gap): Analyze requirements across data, UI, logic, and integration.
-- Derive ISV factors: Determine values for `A1`, `A2`, `B1`, and `C1` according to the ISV catalog.
+- Derive ISV factors: Determine values for `A1`, `A2`, `B1`, `C1`, and `D3` according to the ISV catalog.
 - Generate actionable output: Produce a machine-readable list of required architecture extensions and tasks.
 
 ## Analysis Prompt (System Prompt)
@@ -38,14 +38,17 @@ Perform a rigorous gap analysis by comparing the ticket with existing capabiliti
   - Logic gap: Pass-through CRUD or complex new business logic?
   - Integration gap: New third-party connections missing from `adapterCatalog`?
 
-### ISV Scoring (Version 3.0)
+### ISV Scoring (Version 3.4)
 
-Evaluate complexity strictly by these keys:
+Evaluate complexity using the **Fibonacci integer scale**. Use exactly the discrete values listed — no fractions, no interpolation.
 
-- `A1` (Data): `1.0` (Read-only/static) | `3.0` (Single entity change) | `6.0` (Multi-entity/transactional)
-- `A2` (UX): `1.0` (Standard UI/none) | `1.5` (Advanced UI) | `3.0` (Rich interaction/complex state)
-- `B1` (Logic): `1.0` (Pass-through/CRUD) | `3.0` (Conditional/status) | `8.0` (Algorithmic/heavy)
-- `C1` (Integration): `1.0` (Local/greenfield) | `1.5` (Extension of existing APIs) | `3.0` (Core refactoring) | `5.0` (New third-party system)
+- `A1` (Data): `1` (Read-only / display only) | `2` (Single entity create or edit) | `3` (Multi-entity or relations) | `5` (Schema expansion, migrations, complex transactions)
+- `A2` (UX): `1` (Headless / no UI — neutral) | `2` (Standard component integration) | `3` (Custom UI with complex client-side state)
+- `B1` (Logic): `0` (Pass-through / routing) | `1` (Simple transform) | `2` (Validation / conditional logic) | `3` (State machines / workflows) | `5` (Complex algorithms) | `8` (Heavy computation or AI)
+- `C1` (Integration): `1` (Local change, no new adapters) | `2` (Extension of existing adapters or APIs) | `3` (Core refactoring or new internal adapter) | `5` (New third-party system or major infrastructure)
+- `D3` (Quality): `1` (Standard Definition of Done — default) | `2` (Elevated: mandatory E2E tests, WCAG AAA, security audit) | `3` (Regulatory or compliance constraints)
+
+`D3` defaults to `1` unless the ticket explicitly signals elevated quality requirements (compliance language, WCAG AAA, mandatory certification). A project-level configuration may also provide a baseline `D3` that the agent uses as the floor.
 
 ### Actionable Output
 
@@ -92,10 +95,11 @@ interface GapAnalysisResult {
     actionItems: string[];
   };
   isvScoring: {
-    A1_Data: { score: 1.0 | 3.0 | 6.0; reasoning: string };
-    A2_UX: { score: 1.0 | 1.5 | 3.0; reasoning: string };
-    B1_Logic: { score: 1.0 | 3.0 | 8.0; reasoning: string };
-    C1_Integration: { score: 1.0 | 1.5 | 3.0 | 5.0; reasoning: string };
+    A1_Data: { score: 1 | 2 | 3 | 5; reasoning: string };
+    A2_UX: { score: 1 | 2 | 3; reasoning: string };
+    B1_Logic: { score: 0 | 1 | 2 | 3 | 5 | 8; reasoning: string };
+    C1_Integration: { score: 1 | 2 | 3 | 5; reasoning: string };
+    D3_Quality: { score: 1 | 2 | 3; reasoning: string };
   };
 }
 ```
@@ -165,20 +169,24 @@ Fact Finder reports only an internal database and no Salesforce adapter.
   },
   "isvScoring": {
     "A1_Data": {
-      "score": 3.0,
-      "reasoning": "Single entity processing (Lead)."
+      "score": 2,
+      "reasoning": "Single entity create (Lead). No schema expansion required."
     },
     "A2_UX": {
-      "score": 1.0,
-      "reasoning": "Standard form UI without rich interaction."
+      "score": 1,
+      "reasoning": "Standard contact form; no custom UI state needed."
     },
     "B1_Logic": {
-      "score": 3.0,
-      "reasoning": "Conditional mapping and error handling logic."
+      "score": 3,
+      "reasoning": "Conditional mapping and error handling logic — comparable to a workflow."
     },
     "C1_Integration": {
-      "score": 5.0,
-      "reasoning": "Integration of a new third-party system."
+      "score": 5,
+      "reasoning": "Integration of a new third-party system (Salesforce)."
+    },
+    "D3_Quality": {
+      "score": 1,
+      "reasoning": "Standard Definition of Done; no elevated compliance requirements detected in ticket."
     }
   }
 }

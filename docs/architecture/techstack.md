@@ -9,7 +9,7 @@ This document records the chosen technology stack and the rationale behind it.
 ## Decision
 
 | Concern | Choice |
-|---|---|
+| --- | --- |
 | Language | TypeScript |
 | Runtime | Node.js 24 LTS |
 | Package Manager | pnpm |
@@ -65,15 +65,16 @@ This document records the chosen technology stack and the rationale behind it.
 These are initial recommendations based on requirements from the concept documents. Final choices will be confirmed during implementation.
 
 | Concern | Library | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | Schema & validation | `zod` | Source of truth for domain types; runtime validation at all external boundaries |
 | LLM client | `openai`, `@anthropic-ai/sdk` | Architecture Scanner, Gap Analyzer |
 | MCP server | `@modelcontextprotocol/sdk` | Expose ISV calculation as MCP tool |
 | REST API | `fastify` or `hono` | HTTP interface for webhook-triggered ISV runs |
 | CLI | `commander` or `oclif` | Command-line entry points for both use cases |
-| Git operations | `simple-git` | Repository checkout and log analysis |
+| Git operations | `execa` + `git` CLI | Repository checkout, worktree management, and log analysis |
 | Jira client | `jira.js` or native `fetch` | Ticket retrieval and field updates |
-| Subprocess management | `execa` | Wrapping CLI tools (`scc`, `jscpd`, `cloc`, `knip`) |
+| Static analysis | `scc`, `jscpd`, `knip` via `execa` | Volume, complexity, duplication, dead-code metrics for Status Quo Miner |
+| Subprocess management | `execa` | Wrapping all CLI tools |
 | Statistics | `simple-statistics` | Linear regression and R² for Historical Calibration |
 | Testing | `vitest` | Unit and integration tests |
 

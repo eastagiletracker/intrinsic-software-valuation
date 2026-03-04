@@ -73,6 +73,26 @@ Treat `README.md` updates as part of the same change, not as a later follow-up.
 For the full decision record, see `docs/architecture/techstack.md`.
 For architecture rationale, see `docs/architecture/architecture.md`.
 
+## Testing
+
+This project follows a four-tier testing strategy defined in [`docs/qa-strategy.md`](docs/qa-strategy.md).
+
+Quick reference — file naming encodes the tier:
+
+| Pattern | Tier | What it covers |
+|---|---|---|
+| `*.test.ts` | 1 — Unit | Single function / schema / class |
+| `*.adapter.test.ts` | 2 — Adapter fixture | Adapter against committed sanitized fixture |
+| `*.boundary.test.ts` | 3 — Component boundary | Full component, all adjacent layers mocked |
+| `*.realworld.test.ts` | 4 — Realworld | Real gitignored data, auto-skipped in CI |
+
+Key rules:
+- Mock data in boundary tests must be **derived from committed fixtures** — never invented.
+- Every fixture file must document its **source system and anonymisation steps**.
+- `pnpm test` runs Tiers 1–3. `pnpm test:realworld` runs Tier 4.
+
+See [`docs/qa-strategy.md`](docs/qa-strategy.md) for full rules and checklists.
+
 ## Content style guidelines
 
 - Keep terms consistent with the glossary.
