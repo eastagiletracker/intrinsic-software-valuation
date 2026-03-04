@@ -17,6 +17,8 @@ Provides a high-level `TimeTrackingClient` that abstracts raw format details and
 | `client-config.schema.ts` | `TimeTrackingClientConfigSchema` — project-specific configuration for the factory |
 | `query.schema.ts` | `TimeTrackingQuerySchema` — structured filter criteria (ticket IDs, timeframe) |
 | `index.ts` | Public re-exports for the module |
+| `integration.test.ts` | Client-level integration tests using committed fixtures |
+| `time-tracking.realworld.test.ts` | Real-data tests using gitignored `data/` exports (skipped in CI) |
 | `teamleader-excel/` | Adapter for Teamleader `.xlsx` exports |
 
 ## How to use

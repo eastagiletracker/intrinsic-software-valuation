@@ -17,6 +17,8 @@ Provides a high-level `TicketClient` that abstracts raw format details and file 
 | `client-config.schema.ts` | `TicketClientConfigSchema` — project-specific configuration for the factory |
 | `query.schema.ts` | `TicketQuerySchema` — structured query criteria (all, byTicketNumbers, withSubtasks) |
 | `index.ts` | Public re-exports for the module |
+| `integration.test.ts` | Client-level integration tests using committed fixtures |
+| `jira.realworld.test.ts` | Real-data tests using gitignored `data/` exports (skipped in CI) |
 | `jira-xml/` | Adapter for Jira RSS/XML exports |
 
 ## How to use
