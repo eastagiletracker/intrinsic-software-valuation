@@ -35,7 +35,8 @@ pnpm workspace monorepo with one package per architecture layer:
 - `packages/clients/` (`@isv/clients`) — external system adapters (Jira, LLM, Git, time tracking, static analysis)
 - `packages/services/` (`@isv/services`) — business logic per ISV phase (stateless)
 - `packages/pipelines/` (`@isv/pipelines`) — use-case orchestration (standalone ISV calculation, historical calibration)
-- `packages/interfaces/` — delivery mechanisms (CLI, REST API / MCP server) — added as separate packages later
+- `packages/interfaces/` — delivery mechanisms:
+  - `packages/interfaces/cli/` (`@isv/cli`) — command-line interface
 
 For architectural rationale, see `docs/architecture/architecture.md`. For tech stack details, see `docs/architecture/techstack.md`.
 
@@ -73,6 +74,20 @@ pnpm install      # install dependencies and link workspace packages
 pnpm check        # type-check all packages (tsc --build)
 pnpm test         # run tests across all packages
 ```
+
+## CLI Usage
+
+The ISV Engine provides a CLI for both use cases:
+
+```bash
+# Use Case 2: Calculate ISV for a single ticket
+isv calculate <ticketId>
+
+# Use Case 1: Run historical calibration
+isv calibrate
+```
+
+See `packages/interfaces/cli/README.md` for configuration details.
 
 For conventions and contribution workflow, see:
 - `CONTRIBUTING.md`

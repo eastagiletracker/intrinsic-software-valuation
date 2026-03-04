@@ -5,5 +5,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [{ "path": "../domain" }, { "path": "../services" }]
+  "references": [{ "path": "../domain" }, { "path": "../clients" }, { "path": "../services" }]
 }
