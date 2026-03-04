@@ -39,7 +39,7 @@ const client = await createGitClient({
     { repositoryId: "backend-service", url: "git@github.com:org/backend.git" },
     { repositoryId: "cms", localPath: "/opt/repos/cms" },
   ],
-  dataFolderName: "my-client",
+  dataFolderName: "acme",
 });
 ```
 
@@ -254,7 +254,7 @@ const git = await createGitClient({
     { repositoryId: "frontend", url: "git@github.com:org/frontend.git" },
     { repositoryId: "backend", url: "git@github.com:org/backend.git" },
   ],
-  dataFolderName: "my-client",
+  dataFolderName: "acme",
 });
 
 // Architecture Scanner / Status Quo Miner (snapshot all repos at T0)
