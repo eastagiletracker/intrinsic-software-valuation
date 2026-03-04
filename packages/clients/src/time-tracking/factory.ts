@@ -3,6 +3,10 @@ import { join, resolve } from "node:path";
 
 import type { TimeEntry, TimeSheet } from "@isv/domain";
 
+import type { CacheConfig } from "../cache/cache-config.schema.js";
+import { FileCache } from "../cache/file-cache.js";
+
+import { CachedTimeTrackingClient } from "./cached-time-tracking-client.js";
 import type { TimeTrackingClient } from "./client.js";
 import type { TimeTrackingClientConfig } from "./client-config.schema.js";
 import type { TimeTrackingPort } from "./port.js";
@@ -207,13 +211,24 @@ class DefaultTimeTrackingClient implements TimeTrackingClient {
  * a client instance that can be queried with structured filter criteria.
  *
  * @param config - Project-specific configuration (ticket prefix, data folder, raw format).
+ * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `Promise` resolving to an initialised `TimeTrackingClient`.
  */
 export async function createTimeTrackingClient(
   config: TimeTrackingClientConfig,
+  cacheConfig?: CacheConfig,
 ): Promise<TimeTrackingClient> {
   const adapter = resolveAdapter(config.rawFormat);
   const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
   const files = await discoverFiles(config.dataFolderName, extensions);
-  return new DefaultTimeTrackingClient(adapter, files, config.ticketPrefix);
+  const client: TimeTrackingClient = new DefaultTimeTrackingClient(
+    adapter,
+    files,
+    config.ticketPrefix,
+  );
+
+  if (cacheConfig?.enabled) {
+    return new CachedTimeTrackingClient(client, new FileCache(cacheConfig));
+  }
+  return client;
 }

@@ -3,6 +3,10 @@ import { join, resolve } from "node:path";
 
 import type { Result, Ticket } from "@isv/domain";
 
+import type { CacheConfig } from "../cache/cache-config.schema.js";
+import { FileCache } from "../cache/file-cache.js";
+
+import { CachedTicketClient } from "./cached-ticket-client.js";
 import type { TicketClient } from "./client.js";
 import type { TicketClientConfig } from "./client-config.schema.js";
 import { JiraXmlAdapter } from "./jira-xml/index.js";
@@ -182,13 +186,20 @@ class DefaultTicketClient implements TicketClient {
  * a client instance that can be queried with structured filter criteria.
  *
  * @param config - Project-specific configuration (data folder, ticket prefix, raw format).
+ * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `Promise` resolving to an initialised `TicketClient`.
  */
 export async function createTicketClient(
   config: TicketClientConfig,
+  cacheConfig?: CacheConfig,
 ): Promise<TicketClient> {
   const adapter = resolveAdapter(config.rawFormat);
   const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
   const files = await discoverFiles(config.dataFolderName, extensions);
-  return new DefaultTicketClient(adapter, files);
+  const client: TicketClient = new DefaultTicketClient(adapter, files);
+
+  if (cacheConfig?.enabled) {
+    return new CachedTicketClient(client, new FileCache(cacheConfig));
+  }
+  return client;
 }
