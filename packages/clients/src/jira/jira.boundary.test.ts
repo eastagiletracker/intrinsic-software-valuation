@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTicketClient } from "./factory.js";
 
 // ---------------------------------------------------------------------------
-// Client integration tests — full factory → adapter → domain path
-// Uses the committed fixture placed into a temp data folder.
+// Tier 3 — component boundary test
+// Full factory → adapter → domain path within the jira client package.
+// Fixture-derived data placed into a temp data folder; no external I/O.
 // ---------------------------------------------------------------------------
 
 const FIXTURE_XML = resolve(
@@ -18,7 +19,7 @@ const FIXTURE_XML = resolve(
 );
 const DATA_DIR = resolve("data", "__test-ticket-integration__", "tickets");
 
-describe("TicketClient — fixture integration", () => {
+describe("TicketClient — component boundary", () => {
   beforeEach(async () => {
     await mkdir(DATA_DIR, { recursive: true });
     await copyFile(FIXTURE_XML, resolve(DATA_DIR, "sample.xml"));

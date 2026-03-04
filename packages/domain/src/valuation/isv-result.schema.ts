@@ -11,11 +11,24 @@ import { IsvBreakdownSchema } from "./isv-breakdown.schema.js";
  * calculation — no AI involved. Contains all input factors, the formula
  * breakdown, and the final ISV score.
  *
+ * Every result carries an explicit formula version identifier because
+ * ISV scores become part of legal contracts and must remain traceable
+ * to the exact formula that produced them.
+ *
  * This is the primary output of both the standalone ISV calculation pipeline
  * and the per-cluster step in historical calibration.
  */
 export const IsvResultSchema = z
   .object({
+    formulaVersion: z
+      .string()
+      .min(1)
+      .describe(
+        "Semantic version of the ISV formula used for this calculation, e.g. '3.4'. " +
+          "Required for legal traceability — ISV scores appear in contracts. " +
+          "A change to the formula structure, factor scales, or C2 derivation model " +
+          "constitutes a new version.",
+      ),
     ticketId: TicketIdSchema.describe(
       "ID of the ticket this ISV was calculated for",
     ),
@@ -34,7 +47,7 @@ export const IsvResultSchema = z
       ),
   })
   .describe(
-    "Complete ISV calculation result: input factors, formula breakdown, and final score. " +
+    "Complete ISV calculation result: formula version, input factors, breakdown, and final score. " +
       "Produced by the Valuation Engine. Can be written back to the ticket system.",
   );
 

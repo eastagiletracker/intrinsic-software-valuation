@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTimeTrackingClient } from "./factory.js";
 
 // ---------------------------------------------------------------------------
-// Client integration tests — full factory → adapter → domain path
-// Uses the committed fixture placed into a temp data folder.
+// Tier 3 — component boundary test
+// Full factory → adapter → domain path within the time-tracking client package.
+// Fixture-derived data placed into a temp data folder; no external I/O.
 // ---------------------------------------------------------------------------
 
 const FIXTURE_XLSX = resolve(
@@ -22,7 +23,7 @@ const DATA_DIR = resolve(
   "time-tracking",
 );
 
-describe("TimeTrackingClient — fixture integration", () => {
+describe("TimeTrackingClient — component boundary", () => {
   beforeEach(async () => {
     await mkdir(DATA_DIR, { recursive: true });
     await copyFile(FIXTURE_XLSX, resolve(DATA_DIR, "sample.xlsx"));

@@ -1,10 +1,18 @@
 import { z } from "zod";
 
+import { FactorDiagnosticSchema } from "./factor-diagnostic.schema.js";
+
 /**
  * Result of a historical calibration run.
  *
  * Contains the Ship Rate (hours per ISV point), statistical quality
- * indicators, and per-cluster results for auditing and drill-down.
+ * indicators, the formula version used, and per-cluster results for
+ * auditing and drill-down.
+ *
+ * Optionally includes factor-level diagnostics when advanced analysis
+ * is enabled. Diagnostics validate the static ISV formula against
+ * empirical data — they inform human decisions about formula revisions
+ * but never trigger automatic adjustments.
  *
  * The calibration target is R² > 0.7 between ISV scores and actual
  * invested hours, including change intensity, complexity, and
@@ -12,6 +20,13 @@ import { z } from "zod";
  */
 export const CalibrationResultSchema = z
   .object({
+    formulaVersion: z
+      .string()
+      .min(1)
+      .describe(
+        "Semantic version of the ISV formula this calibration was computed against, e.g. '3.4'. " +
+          "Must match the formulaVersion in all ShipUnitCluster inputs.",
+      ),
     shipRateHoursPerIsv: z
       .number()
       .positive()
@@ -46,10 +61,19 @@ export const CalibrationResultSchema = z
     periodEnd: z
       .string()
       .describe("End of the calibration period (ISO 8601 date or timestamp)"),
+    factorDiagnostics: z
+      .array(FactorDiagnosticSchema)
+      .optional()
+      .describe(
+        "Optional advanced diagnostics: per-factor partial correlations, weights, and p-values. " +
+          "Present only when advanced diagnostics mode is enabled. " +
+          "Informs human review of formula validity — never triggers automatic formula changes.",
+      ),
   })
   .describe(
-    "Historical calibration result: Ship Rate, R² correlation, data quality score, " +
-      "and sample size. Translates abstract ISV points into empirically grounded time estimates.",
+    "Historical calibration result: formula version, Ship Rate, R² correlation, " +
+      "data quality score, sample size, and optional factor-level diagnostics. " +
+      "Translates abstract ISV points into empirically grounded time estimates.",
   );
 
 export type CalibrationResult = z.infer<typeof CalibrationResultSchema>;

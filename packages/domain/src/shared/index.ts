@@ -44,3 +44,8 @@ export {
 } from "./service-error.schema.js";
 
 export { createResultSchema, type Result } from "./result.schema.js";
+
+export {
+  ProjectConfigSchema,
+  type ProjectConfig,
+} from "./project-config.schema.js";

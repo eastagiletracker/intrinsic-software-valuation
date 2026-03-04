@@ -3,6 +3,8 @@ import { z } from "zod";
 import { TicketIdSchema } from "../shared/ticket-id.schema.js";
 import { IsoTimestampSchema } from "../shared/iso-timestamp.schema.js";
 import { ConfidenceScoreSchema } from "../shared/confidence-score.schema.js";
+import { IsvFactorsSchema } from "../valuation/isv-factors.schema.js";
+import { IsvBreakdownSchema } from "../valuation/isv-breakdown.schema.js";
 import { GitChangesSchema } from "./git-changes.schema.js";
 
 /**
@@ -52,6 +54,14 @@ export const ShipUnitClusterSchema = z
       ),
     isvAnalysis: z
       .object({
+        formulaVersion: z
+          .string()
+          .min(1)
+          .describe(
+            "Semantic version of the ISV formula used, e.g. '3.4'. " +
+              "Required for traceability — calibration results must reference " +
+              "the exact formula version they were computed against.",
+          ),
         isvScore: z
           .number()
           .nonnegative()
@@ -59,8 +69,20 @@ export const ShipUnitClusterSchema = z
         confidence: ConfidenceScoreSchema.describe(
           "Gap Analyzer confidence for this cluster's analysis",
         ),
+        factors: IsvFactorsSchema.describe(
+          "All six input factors used in the ISV calculation. " +
+            "Preserved for factor-level statistical validation during calibration.",
+        ),
+        breakdown: IsvBreakdownSchema.describe(
+          "Intermediate formula steps (poValue, archFactor, qualityMultiplier). " +
+            "Preserved for diagnostics and auditing.",
+        ),
       })
-      .describe("ISV analysis results for this cluster"),
+      .describe(
+        "Full ISV analysis for this cluster: formula version, score, confidence, " +
+          "input factors, and breakdown. Factor-level detail enables " +
+          "statistical validation of the static formula against empirical data.",
+      ),
     metrics: z
       .object({
         totalHours: z

@@ -1,4 +1,4 @@
-// Calibration module — ship unit clusters, attributed time, and calibration results.
+// Calibration module — ship unit clusters, attributed time, diagnostics, and calibration results.
 
 export { GitChangesSchema, type GitChanges } from "./git-changes.schema.js";
 export {
@@ -9,6 +9,10 @@ export {
   AttributedTimeEntrySchema,
   type AttributedTimeEntry,
 } from "./attributed-time-entry.schema.js";
+export {
+  FactorDiagnosticSchema,
+  type FactorDiagnostic,
+} from "./factor-diagnostic.schema.js";
 export {
   CalibrationResultSchema,
   type CalibrationResult,

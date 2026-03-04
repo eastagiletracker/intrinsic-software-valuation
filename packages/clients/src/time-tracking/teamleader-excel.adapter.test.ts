@@ -2,19 +2,22 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { TeamleaderExcelAdapter } from "./adapter.js";
+import { TeamleaderExcelAdapter } from "./teamleader-excel/adapter.js";
 
 // ---------------------------------------------------------------------------
-// Integration tests using committed fixture data
+// Tier 2 — adapter fixture test
+// TeamleaderExcelAdapter wired against the committed sanitized fixture.
+// Source provenance: see teamleader-excel/__fixtures__/create-sample-timesheet.ts
 // ---------------------------------------------------------------------------
 
 const FIXTURE_PATH = resolve(
   import.meta.dirname,
+  "teamleader-excel",
   "__fixtures__",
   "sample-timesheet.xlsx",
 );
 
-describe("TeamleaderExcelAdapter — fixture integration", () => {
+describe("TeamleaderExcelAdapter — adapter fixture", () => {
   const adapter = new TeamleaderExcelAdapter();
 
   it("parses the sample timesheet", async () => {

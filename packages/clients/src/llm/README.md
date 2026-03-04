@@ -51,3 +51,9 @@ const result = await client.prompt({
   cwd: "/path/to/repository",
 });
 ```
+
+## Testing
+
+See [`docs/qa-strategy.md`](../../../../../docs/qa-strategy.md) for the full strategy and rules.
+
+Current state: Tier 1 unit tests and Tier 4 realworld test are in place. Tier 2 adapter fixture and Tier 3 boundary tests are pending (no `__fixtures__/` yet).

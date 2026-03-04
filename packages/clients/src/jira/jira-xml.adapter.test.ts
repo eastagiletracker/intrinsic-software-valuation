@@ -2,19 +2,22 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { JiraXmlAdapter } from "./adapter.js";
+import { JiraXmlAdapter } from "./jira-xml/adapter.js";
 
 // ---------------------------------------------------------------------------
-// Integration tests using committed fixture data
+// Tier 2 — adapter fixture test
+// JiraXmlAdapter wired against the committed sanitized fixture.
+// Source provenance: see jira-xml/__fixtures__/sample-export.xml
 // ---------------------------------------------------------------------------
 
 const FIXTURE_PATH = resolve(
   import.meta.dirname,
+  "jira-xml",
   "__fixtures__",
   "sample-export.xml",
 );
 
-describe("JiraXmlAdapter — fixture integration", () => {
+describe("JiraXmlAdapter — adapter fixture", () => {
   const adapter = new JiraXmlAdapter();
 
   it("parses all valid items from the sample export", async () => {

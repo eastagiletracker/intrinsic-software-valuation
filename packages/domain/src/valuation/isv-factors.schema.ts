@@ -37,17 +37,19 @@ export const IsvFactorsSchema = z
     ),
     C2_State: C2StateScale.describe(
       "State Factor: technical debt and system health. " +
-        "Derived from CodeHealthReport metrics by the pipeline or valuation service.",
+        "Derived deterministically by the Valuation service from CodeHealthReport HealthScores " +
+        "using the C2 penalty model. Never set manually.",
     ),
     D3_Quality: D3QualityScale.describe(
       "Quality Multiplier: Definition of Done level. " +
-        "From pipeline configuration, ticket labels, or project defaults.",
+        "Assessed by the Gap Analyzer from ticket signals and project configuration. " +
+        "Defaults to 1 (standard DoD) when no elevated requirements are detected.",
     ),
   })
   .describe(
     "All six ISV factors for the Valuation Engine. " +
-      "Assembled by the pipeline from Gap Analyzer (A1-C1), " +
-      "Status Quo Miner (C2), and configuration (D3).",
+      "Assembled by the pipeline from Gap Analyzer (A1, A2, B1, C1, D3) " +
+      "and Valuation service (C2, derived from HealthScores).",
   );
 
 export type IsvFactors = z.infer<typeof IsvFactorsSchema>;

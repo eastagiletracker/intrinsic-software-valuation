@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Structural facts: metrics describing system size and activity hotspots.
  *
- * Collected by the Status Quo Miner using deterministic tools (scc, cloc, git log).
+ * Collected by the Status Quo Miner using deterministic tools (scc, jscpd, knip, git log).
  * No interpretation — only counting.
  */
 
@@ -15,7 +15,7 @@ export const VolumeMetricsSchema = z
       .nonnegative()
       .int()
       .describe(
-        "Total lines of code (excluding blanks and comments) from scc/cloc",
+        "Total lines of code (excluding blanks and comments) from scc",
       ),
     totalFiles: z
       .number()

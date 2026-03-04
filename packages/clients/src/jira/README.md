@@ -17,8 +17,9 @@ Provides a high-level `TicketClient` that abstracts raw format details and file 
 | `client-config.schema.ts` | `TicketClientConfigSchema` — project-specific configuration for the factory |
 | `query.schema.ts` | `TicketQuerySchema` — structured query criteria (all, byTicketNumbers, withSubtasks) |
 | `index.ts` | Public re-exports for the module |
-| `integration.test.ts` | Client-level integration tests using committed fixtures |
-| `jira.realworld.test.ts` | Real-data tests using gitignored `data/` exports (skipped in CI) |
+| `jira-xml.adapter.test.ts` | Tier 2: adapter wired against committed XML fixture |
+| `jira.boundary.test.ts` | Tier 3: full factory → client, mocked boundary |
+| `jira.realworld.test.ts` | Tier 4: real-data tests using gitignored `data/` exports (skipped in CI) |
 | `jira-xml/` | Adapter for Jira RSS/XML exports |
 
 ## How to use
@@ -47,3 +48,14 @@ const withSubs = await client.getTickets({
   parentIds: ["PROJ-100"],
 });
 ```
+
+## Testing
+
+This client has full four-tier test coverage. See [`docs/qa-strategy.md`](../../../../../docs/qa-strategy.md) for the strategy and rules.
+
+| File | Tier | Description |
+|---|---|---|
+| `jira-xml/adapter.test.ts` | 1 — Unit | Adapter helper functions (date parsing, XML extraction) |
+| `jira-xml.adapter.test.ts` | 2 — Adapter fixture | Full parse contract against `jira-xml/__fixtures__/sample-export.xml` |
+| `jira.boundary.test.ts` | 3 — Component boundary | Factory → client wiring, fixture-derived mocks |
+| `jira.realworld.test.ts` | 4 — Realworld | Real Jira XML export, auto-skipped when data absent |

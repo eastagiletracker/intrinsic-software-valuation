@@ -298,6 +298,12 @@ await git.destroy();
 | `git.realworld.test.ts` | Real-world integration test against the ISV Engine repository |
 | `index.ts` | Public re-exports for the module |
 
+## Testing
+
+See [`docs/qa-strategy.md`](../../../../../docs/qa-strategy.md) for the full strategy and rules.
+
+Current state: Tier 1 unit tests and Tier 4 realworld test are in place. Tier 2 adapter fixture and Tier 3 boundary tests are pending (no `__fixtures__/` yet).
+
 ## Open decisions
 
 - **Authentication**: How private repos are accessed (SSH agent, token in URL, credential helper) — affects the `git clone` command but not the worktree pattern. The adapter will pass through whatever credentials the environment provides (SSH agent, Git credential helper, `GIT_ASKPASS`).
