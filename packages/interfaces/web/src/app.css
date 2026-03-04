@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/* latin-ext (German umlauts, diacritics) */
+@font-face {
+  font-family: "Roboto Flex Variable";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("/fonts/RobotoFlex-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
+    U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F,
+    U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+/* latin (base) */
+@font-face {
+  font-family: "Roboto Flex Variable";
+  font-style: normal;
+  font-weight: 100 1000;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url("/fonts/RobotoFlex-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+    U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@theme {
+  --font-sans: "Roboto Flex Variable", Arial, sans-serif;
+
+  --color-brand: #0704ff;
+  --color-brand-dark: #08082d;
+  --color-brand-dark-alt: #1c1c3e;
+
+  --color-accent-red: #f04a46;
+  --color-accent-red-bright: #fa716d;
+  --color-accent-red-middle: #fb9492;
+  --color-accent-red-light: #fdb8b6;
+  --color-accent-red-extra-light: #fff6f6;
+
+  --color-surface: #ffffff;
+  --color-surface-secondary: #fafafc;
+  --color-surface-blue: #f5f5ff;
+
+  --color-border: #ebebfa;
+  --color-border-light: #ebebf5;
+
+  --color-text: #08082d;
+  --color-text-secondary: #474759;
+  --color-text-highlight: #0704ff;
+  --color-text-inverse: #ffffff;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-text);
+    background-color: var(--color-surface-secondary);
+  }
+}

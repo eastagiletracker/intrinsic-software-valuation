@@ -9,6 +9,7 @@ Each subdirectory in this folder is a separate pnpm workspace package that provi
 ## Implemented Interfaces
 
 - `cli/` — `@isv/cli` — command-line entry points for ISV calculation and historical calibration
+- `web/` — `@isv/web` — web-based dashboard for interactive ISV calculation and calibration review
 
 ## Planned Interfaces
 
@@ -17,9 +18,12 @@ Each subdirectory in this folder is a separate pnpm workspace package that provi
 ## Usage
 
 ```bash
-# Single-ticket ISV calculation
+# CLI: Single-ticket ISV calculation
 isv calculate PROJ-123
 
-# Historical calibration batch run
+# CLI: Historical calibration batch run
 isv calibrate
+
+# Web UI: Start the development server
+cd packages/interfaces/web && pnpm run dev
 ```
