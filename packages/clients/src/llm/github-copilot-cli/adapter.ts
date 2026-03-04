@@ -31,8 +31,11 @@ function stripAnsi(text: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * LLM adapter that invokes the GitHub Copilot CLI (`gh copilot suggest`)
+ * LLM adapter that invokes the GitHub Copilot CLI (`gh copilot -p`)
  * to send prompts and capture responses.
+ *
+ * Uses `-p` (non-interactive prompt) with `-s` (silent/script output)
+ * for clean, parseable responses.
  *
  * Stateless and safe for concurrent use.
  */
@@ -57,7 +60,7 @@ export class GithubCopilotCliAdapter implements LlmPort {
     return new Promise((resolve, reject) => {
       execFile(
         "gh",
-        ["copilot", "suggest", "-t", "shell", prompt],
+        ["copilot", "-p", prompt, "-s", "--no-auto-update"],
         {
           cwd,
           timeout: this.timeoutMs,
