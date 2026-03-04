@@ -15,10 +15,15 @@
 | Jira client | ✅ XML adapter, factory, integration + real-world tests |
 | LLM client | ✅ GitHub Copilot CLI adapter, factory, integration tests |
 | Time-tracking client | ✅ Teamleader Excel adapter, factory, integration tests |
-| Static-analysis client | 🚧 Port + client interfaces defined; no adapter implementation yet |
-| All 5 services | 🔲 Empty stubs (`export {}`) |
-| Both pipelines | 🔲 Empty stubs (`export {}`) |
-| Interfaces (CLI / API) | 🔲 Not started |
+| Static-analysis client | ✅ scc/jscpd/knip adapters, factory, Tier 2 tests |
+| Valuation service | ✅ ISV formula, C2 derivation, all case studies tested |
+| Status Quo Miner service | ✅ Metric collection, entry-point detection, boundary tests |
+| Architecture Scanner service | ✅ LLM prompt, Zod validation, boundary tests |
+| Gap Analyzer service | ✅ LLM prompt, D3 floor, boundary tests |
+| Calibration service | ✅ Clustering, 5 attribution strategies, DQS, regression |
+| ISV Calculation Pipeline | ✅ Full orchestration, boundary tests |
+| Historical Calibration Pipeline | ✅ Batch calibration, boundary tests |
+| Interfaces (CLI) | ✅ `@isv/cli` package with calculate/calibrate commands |
 
 ---
 
@@ -90,12 +95,12 @@ M0  ── Domain Audit ──────────────────�
 - [x] Define `StaticAnalysisPort` interface (scc, jscpd, knip methods)
 - [x] Define `StaticAnalysisClient` interface
 - [x] Create static-analysis README
-- [ ] Implement scc adapter (parse JSON output via `execa`)
-- [ ] Implement jscpd adapter (parse JSON reporter output)
-- [ ] Implement knip adapter (parse JSON output)
-- [ ] Implement `StaticAnalysisClient` factory wiring adapters together
-- [ ] Write Tier 2 adapter tests with `__fixtures__/` for each tool
-- [ ] Write integration test: factory → adapter → domain types
+- [x] Implement scc adapter (parse JSON output via `execa`)
+- [x] Implement jscpd adapter (parse JSON reporter output)
+- [x] Implement knip adapter (parse JSON output)
+- [x] Implement `StaticAnalysisClient` factory wiring adapters together
+- [x] Write Tier 2 adapter tests with `__fixtures__/` for each tool
+- [x] Write integration test: factory → adapter → domain types
 - [ ] Add real-world test against the ISV Engine repo itself
 
 **Exit criteria:** `StaticAnalysisClient.analyze(dir)` returns valid `StructuralFacts` + `HealthScores` for a real repository.
@@ -106,12 +111,12 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** First runnable service: Git checkout → static analysis → entry-point counting → `CodeHealthReport`.
 
-- [ ] Define service interface: `(repos: WorkingTree[], timestamp: IsoTimestamp) → CodeHealthReport[]`
-- [ ] Implement metric collection: call `StaticAnalysisClient.analyze()` per repo
-- [ ] Implement entry-point detection (file-pattern search for controllers/views)
-- [ ] Implement Git hotspot extraction (via `GitClient.logStats()`)
-- [ ] Assemble `CodeHealthReport` per repository
-- [ ] Write Tier 3 boundary tests with fixture-backed mocks
+- [x] Define service interface: `(repos: WorkingTree[], timestamp: IsoTimestamp) → CodeHealthReport[]`
+- [x] Implement metric collection: call `StaticAnalysisClient.analyze()` per repo
+- [x] Implement entry-point detection (file-pattern search for controllers/views)
+- [x] Implement Git hotspot extraction (via `GitClient.logStats()`)
+- [x] Assemble `CodeHealthReport` per repository
+- [x] Write Tier 3 boundary tests with fixture-backed mocks
 - [ ] Add real-world test: run against ISV Engine repo at HEAD
 
 **Exit criteria:** Given a checked-out repo, produces a schema-valid `CodeHealthReport`.
@@ -122,13 +127,13 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** LLM-assisted Phase 1: source code → `SystemContext` structured output.
 
-- [ ] Define service interface: `(workingDir: string, llm: LlmClient) → SystemContext`
-- [ ] Design system prompt (from concept doc) with Zod-schema-aligned JSON output instructions
-- [ ] Implement prompt construction: directory listing + key file sampling
-- [ ] Implement LLM invocation via `LlmClient.prompt()`
-- [ ] Implement response parsing + Zod validation of `SystemContextSchema`
-- [ ] Add confidence gate: reject low-confidence or malformed responses
-- [ ] Write Tier 3 boundary tests with mock LLM responses from `__fixtures__/`
+- [x] Define service interface: `(workingDir: string, llm: LlmClient) → SystemContext`
+- [x] Design system prompt (from concept doc) with Zod-schema-aligned JSON output instructions
+- [x] Implement prompt construction: directory listing + key file sampling
+- [x] Implement LLM invocation via `LlmClient.prompt()`
+- [x] Implement response parsing + Zod validation of `SystemContextSchema`
+- [x] Add confidence gate: reject low-confidence or malformed responses
+- [x] Write Tier 3 boundary tests with mock LLM responses from `__fixtures__/`
 - [ ] Add real-world test: scan ISV Engine repo → validate `SystemContext` structure
 
 **Exit criteria:** Given a repo directory and LLM, produces a schema-valid `SystemContext`.
@@ -154,13 +159,13 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** Pure deterministic formula engine: `IsvFactors → IsvResult`. No AI.
 
-- [ ] Implement ISV formula: `((A1 × A2) + B1) × (C1 × C2) × D3`
-- [ ] Implement `IsvBreakdown` calculation (poValue, archFactor, qualityMultiplier)
-- [ ] Implement C2 derivation: `HealthScores → C2State` using the penalty model from Valuation v3.4
-- [ ] Implement multi-repo C2 aggregation: max across per-repo C2 values
-- [ ] Write unit tests: all four concept-doc case studies (React=4, Salesforce=70, Migration=8, Bugfix/Toxic=6)
-- [ ] Write unit tests: C2 derivation boundary conditions (penalty sums 0→1→2→4→5→7)
-- [ ] Write unit tests: edge cases (all factors at minimum, all at maximum)
+- [x] Implement ISV formula: `((A1 × A2) + B1) × (C1 × C2) × D3`
+- [x] Implement `IsvBreakdown` calculation (poValue, archFactor, qualityMultiplier)
+- [x] Implement C2 derivation: `HealthScores → C2State` using the penalty model from Valuation v3.4
+- [x] Implement multi-repo C2 aggregation: max across per-repo C2 values
+- [x] Write unit tests: all four concept-doc case studies (React=4, Salesforce=70, Migration=8, Bugfix/Toxic=6)
+- [x] Write unit tests: C2 derivation boundary conditions (penalty sums 0→1→2→4→5→7)
+- [x] Write unit tests: edge cases (all factors at minimum, all at maximum)
 
 **Exit criteria:** Formula matches all documented case studies; C2 derivation is deterministic and tested.
 
@@ -172,10 +177,10 @@ M0  ── Domain Audit ──────────────────�
 
 **Blocker for:** M5 (ISV Calculation Pipeline)
 
-- [ ] All four case-study scenarios produce exact expected ISV scores
-- [ ] C2 derivation: `HealthScores` → C2 boundary tests pass for all threshold transitions
-- [ ] D3 floor from `ProjectConfig` is respected (ticket D3 ≥ floor)
-- [ ] Test named `valuation.formula.test.ts` in `packages/services/`
+- [x] All four case-study scenarios produce exact expected ISV scores
+- [x] C2 derivation: `HealthScores` → C2 boundary tests pass for all threshold transitions
+- [x] D3 floor from `ProjectConfig` is respected (ticket D3 ≥ floor)
+- [x] Test named `valuation.formula.test.ts` in `packages/services/`
 
 **Pass criteria:** Deterministic formula + C2 derivation is correct and regression-tested.
 
@@ -185,13 +190,13 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** LLM-assisted Phase 2: `SystemBaseline + Ticket → GapAnalysisResult` with structured output.
 
-- [ ] Define service interface: `(baseline: SystemBaseline, ticket: Ticket, config: ProjectConfig, llm: LlmClient) → GapAnalysisResult`
-- [ ] Design analysis prompt from Gap Analyzer concept doc (v3.4 Fibonacci scales, including D3)
-- [ ] Implement prompt construction: serialise SystemContext + Ticket for LLM context
-- [ ] Implement structured output parsing + Zod validation of `GapAnalysisResultSchema`
-- [ ] Implement quality gates: actionability check, confidence threshold (< 0.7 → flag for review)
-- [ ] Implement D3 floor enforcement: `max(ticket D3, projectConfig.d3QualityFloor)`
-- [ ] Write Tier 3 boundary tests with mock LLM responses from `__fixtures__/`
+- [x] Define service interface: `(baseline: SystemBaseline, ticket: Ticket, config: ProjectConfig, llm: LlmClient) → GapAnalysisResult`
+- [x] Design analysis prompt from Gap Analyzer concept doc (v3.4 Fibonacci scales, including D3)
+- [x] Implement prompt construction: serialise SystemContext + Ticket for LLM context
+- [x] Implement structured output parsing + Zod validation of `GapAnalysisResultSchema`
+- [x] Implement quality gates: actionability check, confidence threshold (< 0.7 → flag for review)
+- [x] Implement D3 floor enforcement: `max(ticket D3, projectConfig.d3QualityFloor)`
+- [x] Write Tier 3 boundary tests with mock LLM responses from `__fixtures__/`
 
 **Exit criteria:** Given a baseline and ticket, produces a schema-valid `GapAnalysisResult` with five ISV factor scores.
 
@@ -232,16 +237,16 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** End-to-end orchestration: single ticket → final `IsvResult`.
 
-- [ ] Implement pipeline: ticket ID → Jira client → ticket
-- [ ] Implement pipeline: repos → Git client checkout → Status Quo Miner → CodeHealthReport[]
-- [ ] Implement pipeline: repos → Git client checkout → Architecture Scanner → SystemContext[]
-- [ ] Implement pipeline: assemble `SystemBaseline` from per-repo outputs
-- [ ] Implement pipeline: derive C2 via Valuation service
-- [ ] Implement pipeline: invoke Gap Analyzer → `GapAnalysisResult`
-- [ ] Implement pipeline: assemble `IsvFactors` (A1-C1, D3 from Gap Analyzer; C2 from Valuation)
-- [ ] Implement pipeline: invoke Valuation service → `IsvResult`
-- [ ] Write Tier 3 boundary test: mock all services, assert pipeline orchestration
-- [ ] Write error handling: propagate `Result<T>` failures cleanly
+- [x] Implement pipeline: ticket ID → Jira client → ticket
+- [x] Implement pipeline: repos → Git client checkout → Status Quo Miner → CodeHealthReport[]
+- [x] Implement pipeline: repos → Git client checkout → Architecture Scanner → SystemContext[]
+- [x] Implement pipeline: assemble `SystemBaseline` from per-repo outputs
+- [x] Implement pipeline: derive C2 via Valuation service
+- [x] Implement pipeline: invoke Gap Analyzer → `GapAnalysisResult`
+- [x] Implement pipeline: assemble `IsvFactors` (A1-C1, D3 from Gap Analyzer; C2 from Valuation)
+- [x] Implement pipeline: invoke Valuation service → `IsvResult`
+- [x] Write Tier 3 boundary test: mock all services, assert pipeline orchestration
+- [x] Write error handling: propagate `Result<T>` failures cleanly
 
 **Exit criteria:** `pipeline.run(ticketId, config) → IsvResult` compiles and passes boundary tests.
 
@@ -265,15 +270,15 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** Time-entry attribution, cluster assembly, per-cluster ISV + metrics population.
 
-- [ ] Implement ticket clustering: parent + subtasks from Jira hierarchy
-- [ ] Implement T0 derivation: first Git commit or Jira status transition per cluster
-- [ ] Implement time-entry attribution (5 strategies from concept doc: direct, cluster, multi-ID split, threshold, no-ID)
-- [ ] Implement `AttributedTimeEntry` production with audit trail
-- [ ] Implement Git change metrics aggregation: LOC, entropy, complexity delta → `GitChanges`
-- [ ] Implement `ShipUnitCluster` assembly: ISV score + time + git changes
-- [ ] Implement Data Quality Score (DQS): `(Matched + KBV) / Total`
-- [ ] Implement Ship Rate regression: ISV vs. hours with `simple-statistics`
-- [ ] Write Tier 3 boundary tests with fixture-backed clusters
+- [x] Implement ticket clustering: parent + subtasks from Jira hierarchy
+- [x] Implement T0 derivation: first Git commit or Jira status transition per cluster
+- [x] Implement time-entry attribution (5 strategies from concept doc: direct, cluster, multi-ID split, threshold, no-ID)
+- [x] Implement `AttributedTimeEntry` production with audit trail
+- [x] Implement Git change metrics aggregation: LOC, entropy, complexity delta → `GitChanges`
+- [x] Implement `ShipUnitCluster` assembly: ISV score + time + git changes
+- [x] Implement Data Quality Score (DQS): `(Matched + KBV) / Total`
+- [x] Implement Ship Rate regression: ISV vs. hours with linear regression
+- [x] Write Tier 3 boundary tests with fixture-backed clusters
 
 **Exit criteria:** Given tickets + time entries + git data, produces `ShipUnitCluster[]` and `CalibrationResult`.
 
@@ -283,14 +288,14 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** Batch run: all historical clusters → `CalibrationResult` with R² and DQS.
 
-- [ ] Implement pipeline: load all tickets from Jira client
-- [ ] Implement pipeline: cluster tickets → derive T0 per cluster
-- [ ] Implement pipeline: for each cluster: Git checkout at T0 → Fact Finder → Gap Analyzer → Valuation
-- [ ] Implement pipeline: for each cluster: time attribution → Git change metrics
-- [ ] Implement pipeline: assemble `ShipUnitCluster[]`
-- [ ] Implement pipeline: run calibration → `CalibrationResult`
-- [ ] Write Tier 3 boundary test: mock services, assert pipeline orchestration
-- [ ] Write error handling: skip clusters with insufficient data, log warnings
+- [x] Implement pipeline: load all tickets from Jira client
+- [x] Implement pipeline: cluster tickets → derive T0 per cluster
+- [x] Implement pipeline: for each cluster: Git checkout at T0 → Fact Finder → Gap Analyzer → Valuation
+- [x] Implement pipeline: for each cluster: time attribution → Git change metrics
+- [x] Implement pipeline: assemble `ShipUnitCluster[]`
+- [x] Implement pipeline: run calibration → `CalibrationResult`
+- [x] Write Tier 3 boundary test: mock services, assert pipeline orchestration
+- [x] Write error handling: skip clusters with insufficient data, log warnings
 
 **Exit criteria:** `pipeline.run(config) → CalibrationResult` compiles and passes boundary tests.
 
@@ -335,14 +340,14 @@ M0  ── Domain Audit ──────────────────�
 
 **Goal:** Delivery layer making both use cases accessible.
 
-- [ ] Create `packages/interfaces/cli/` workspace package
-- [ ] Implement CLI command: `isv calculate <ticketId>` → ISV Calculation Pipeline
-- [ ] Implement CLI command: `isv calibrate` → Historical Calibration Pipeline
+- [x] Create `packages/interfaces/cli/` workspace package
+- [x] Implement CLI command: `isv calculate <ticketId>` → ISV Calculation Pipeline
+- [x] Implement CLI command: `isv calibrate` → Historical Calibration Pipeline
 - [ ] Implement CLI configuration loading (project config, client configs)
 - [ ] Create `packages/interfaces/api/` workspace package (if needed)
 - [ ] Implement REST endpoint or MCP server tool for ISV calculation
 - [ ] Write integration tests for CLI commands
-- [ ] Update root README with usage instructions
+- [x] Update root README with usage instructions
 
 **Exit criteria:** Both use cases are executable from the command line with real data.
 

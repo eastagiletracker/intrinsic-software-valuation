@@ -1,0 +1,19 @@
+{
+  "name": "@isv/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "isv": "./src/main.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@isv/clients": "workspace:*",
+    "@isv/domain": "workspace:*",
+    "@isv/pipelines": "workspace:*",
+    "@isv/services": "workspace:*"
+  }
+}

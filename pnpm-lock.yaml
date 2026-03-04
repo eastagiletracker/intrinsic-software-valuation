@@ -45,6 +45,21 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
 
+  packages/interfaces/cli:
+    dependencies:
+      '@isv/clients':
+        specifier: workspace:*
+        version: link:../../clients
+      '@isv/domain':
+        specifier: workspace:*
+        version: link:../../domain
+      '@isv/pipelines':
+        specifier: workspace:*
+        version: link:../../pipelines
+      '@isv/services':
+        specifier: workspace:*
+        version: link:../../services
+
   packages/pipelines:
     dependencies:
       '@isv/clients':
