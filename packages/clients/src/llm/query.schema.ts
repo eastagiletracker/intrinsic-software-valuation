@@ -36,8 +36,8 @@ export const LlmQuerySchema = z
       .min(1)
       .optional()
       .describe(
-        "Optional working directory for CLI-based adapters. " +
-          "Allows the LLM tool to access repository files directly.",
+        "Optional working directory from which the CLI adapter executes, " +
+          "allowing it to resolve relative paths within the repository.",
       ),
   })
   .describe(

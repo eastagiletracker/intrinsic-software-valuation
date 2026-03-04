@@ -17,8 +17,13 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * Strip ANSI escape codes and common CLI progress indicators from output.
  */
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1B\[[0-9;]*[A-Za-z]/g, "").trim();
+  return text
+    .replace(
+      // eslint-disable-next-line no-control-regex
+      /[\u001B\u009B][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g,
+      "",
+    )
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
