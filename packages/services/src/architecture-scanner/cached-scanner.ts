@@ -47,7 +47,8 @@ export class CachedArchitectureScannerService implements ArchitectureScannerPort
       return this.inner.scan(workingDir, llm);
     }
 
-    // Derive repositoryId from the directory name (same logic as the service).
+    // Derive repositoryId from the directory name — must match the logic in
+    // ArchitectureScannerService.scan() so the cache key is consistent.
     const repositoryId =
       workingDir.split("/").filter(Boolean).pop() ?? "unknown";
 
