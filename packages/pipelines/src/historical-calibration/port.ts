@@ -1,5 +1,7 @@
 import type { CalibrationRunOutput, Result } from "@isv/domain";
 
+import type { CalibrationProgressCallback } from "./progress.js";
+
 /**
  * Historical Calibration Pipeline port.
  *
@@ -34,4 +36,8 @@ export interface HistoricalCalibrationConfig {
   d3QualityFloor?: 1 | 2 | 3;
   /** Minimum cluster confidence to include. */
   minConfidence?: number;
+  /** Optional progress callback for live progress reporting. */
+  onProgress?: CalibrationProgressCallback;
+  /** Optional run ID for checkpoint/resume. When omitted, a timestamp-based ID is generated. */
+  runId?: string;
 }

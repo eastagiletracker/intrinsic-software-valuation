@@ -7,3 +7,8 @@ export {
   createHistoricalCalibrationPipeline,
   type HistoricalCalibrationDeps,
 } from "./pipeline.js";
+export type {
+  CalibrationPhaseId,
+  CalibrationProgressEvent,
+  CalibrationProgressCallback,
+} from "./progress.js";
