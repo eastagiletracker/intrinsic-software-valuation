@@ -23,7 +23,7 @@
 <aside class="flex w-72 shrink-0 flex-col border-r border-white/30 bg-brand-dark text-text-inverse">
   <!-- Logo header -->
   <div class="flex items-center gap-3 border-b border-white/10 px-5 py-5">
-    <img src="/logo_bitgrip.svg" alt="Bitgrip" class="h-6" />
+    <img src="/logo_bitgrip.png" alt="Bitgrip" class="h-6" />
     <span class="text-xs font-light tracking-wider text-white/60 uppercase">ISV Engine</span>
   </div>
 
