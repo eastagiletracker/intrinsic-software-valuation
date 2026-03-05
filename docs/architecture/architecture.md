@@ -368,10 +368,133 @@ The interface layer adapts external protocols to pipeline calls. Each interface 
 | `CONTRIBUTING.md` | Update | Add `src/` structure conventions |
 | `docs/concept/README.md` | No change | Concept docs remain as-is |
 
+## Batch Processing Architecture
+
+The Historical Calibration pipeline (Use Case 1) processes dozens to thousands of clusters in a single run. This section describes the architectural approach for making batch runs reliable, fast, and observable — implemented in two phases.
+
+### Phase 1 — Resilience & Observability (Sequential)
+
+Phase 1 hardens the existing sequential `for…of` cluster loop without adding external dependencies:
+
+- **Retry**: `retryAsync()` utility with exponential backoff wraps transient I/O calls (LLM, Git, Architecture Scanner).
+- **Checkpoint / Resume**: JSONL append-log per run at `data/<project>/calibration-runs/<runId>/progress.jsonl`. Completed and skipped cluster IDs are recorded. Re-runs skip known clusters.
+- **Progress callback**: `onProgress` on pipeline config, reusing the `PipelineProgressCallback` event pattern from ISV calculation.
+- **CLI wiring**: `isv calibrate --project <slug>` instantiates the full pipeline with progress rendering to stdout.
+- **Per-cluster resource release**: `gitClient.release(tree)` replaces the global `releaseAll()` in the cluster loop — prerequisite for parallel processing.
+
+Zero new dependencies. Details in [Phase 1 requirements](../../project-management/calibration-process-stability/requirements.md).
+
+### Phase 2 — Parallelism & Persistence
+
+Phase 2 introduces concurrent cluster processing and a queryable local data store, adding two external packages:
+
+**Concurrency: `p-queue` + `p-retry`**
+
+The cluster processing loop is converted from sequential `for…of` to a concurrent work queue:
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│  PQueue (concurrency: N)                                │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                │
+│  │ Cluster A│ │ Cluster B│ │ Cluster C│  … (pending)    │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘                │
+│       │             │             │                      │
+│   pRetry(3)     pRetry(3)     pRetry(3)                 │
+│       │             │             │                      │
+│   ┌───▼───┐     ┌───▼───┐     ┌───▼───┐                │
+│   │checkout│     │checkout│     │checkout│               │
+│   │mine    │     │mine    │     │mine    │               │
+│   │scan    │──┐  │scan    │──┐  │scan    │──┐            │
+│   │analyze │  │  │analyze │  │  │analyze │  │            │
+│   │valuate │  │  │valuate │  │  │valuate │  │            │
+│   └───┬────┘  │  └───┬────┘  │  └───┬────┘  │           │
+│       │    LLM semaphore (max 2)     │       │           │
+│       ▼       │       ▼       │      ▼       │           │
+│   checkpoint  │   checkpoint  │  checkpoint  │           │
+│   + RunStore  │   + RunStore  │  + RunStore  │           │
+└───────────────┴───────────────┴──────────────┴───────────┘
+```
+
+- `p-queue` (pure ESM, 19M weekly downloads, feature-complete) provides concurrency limiting, per-task timeout, pause/resume, and event-driven progress (`completed`, `error`, `idle`).
+- `p-retry` (pure ESM, 31M weekly downloads) replaces Phase 1's hand-rolled `retryAsync` with battle-tested exponential backoff, `shouldRetry` predicate, and `AbortSignal` support.
+- An **LLM semaphore** (`p-limit(2)` or a dedicated `PQueue`) gates concurrent LLM calls independently of the cluster worker count, preventing API rate-limit exhaustion.
+- Phase 1's `retryAsync` is retired in favor of `p-retry`.
+
+**Persistence: `node:sqlite` (built-in)**
+
+The JSONL checkpoint from Phase 1 is replaced (or supplemented) by a `node:sqlite` database at `data/<project>/calibration-runs/<runId>/store.db`:
+
+| Table | Purpose |
+| --- | --- |
+| `runs` | Run metadata: ID, config, status, timestamps, summary |
+| `clusters` | Per-cluster state: status (pending/running/done/failed/skipped), result JSON, retry count |
+
+Key advantages over JSONL for parallel workloads:
+
+- **In-place status updates** — `UPDATE clusters SET status = 'done'` vs. rewriting an entire file.
+- **Filtered queries** — `SELECT * FROM clusters WHERE status = 'failed'` for reporting.
+- **Concurrent writes** — WAL mode handles parallel workers writing simultaneously.
+- **ACID transactions** — multi-record updates are atomic.
+
+`node:sqlite` is built into Node.js 24 (Stability 1.1 — Active development). Zero external dependencies. The `DatabaseSync` / `StatementSync` API has been stable since Node 22.5. Access is abstracted behind a `RunStore` port interface so `better-sqlite3` can serve as a drop-in fallback if needed.
+
+**Data flow in Phase 2:**
+
+```text
+isv calibrate --project unicef --concurrency 5
+        │
+        ▼
+  Load tickets → Cluster → Load time entries → Attribute time → DQS
+        │
+        ▼
+  RunStore.createRun(config)
+        │
+        ▼
+  PQueue(concurrency: 5)
+    ├── cluster A → pRetry → [git, mine, scan*, analyze*, valuate]
+    ├── cluster B → pRetry → [git, mine, scan*, analyze*, valuate]
+    ├── cluster C → …
+    │   (* = gated by LLM semaphore)
+    │
+    │   on('completed') → RunStore.updateCluster(…, 'done')
+    │   on('error')     → RunStore.updateCluster(…, 'failed')
+    │
+    ▼
+  Regression (all successful clusters)
+        │
+        ▼
+  RunStore.completeRun(result)
+  Write result.json + summary to stdout
+```
+
+**Dependency budget for Phase 2:**
+
+| Package | Type | Purpose |
+| --- | --- | --- |
+| `p-queue` | External (pure ESM) | Concurrent work queue with events |
+| `p-retry` | External (pure ESM) | Retry with exponential backoff |
+| `node:sqlite` | Built-in | Queryable local data store |
+
+Total new external packages: **2**. Total native addon dependencies: **0**.
+
+Details in [Phase 2 requirements](../../project-management/calibration-process-stability/phase-2-requirements.md).
+
+### Layer placement
+
+| Concern | Package | Layer | Rationale |
+| --- | --- | --- | --- |
+| `p-queue` / `p-retry` usage | `@isv/pipelines` | Pipelines | Orchestration concern — services remain stateless |
+| `RunStore` port interface | `@isv/pipelines` | Pipelines | Pipeline-internal persistence |
+| `node:sqlite` `RunStore` adapter | `@isv/pipelines` | Pipelines | Implementation detail behind port |
+| LLM semaphore | `@isv/pipelines` | Pipelines | Cross-cutting concurrency — injected into cluster processing |
+| `isv init` command | `@isv/interfaces/cli` | Interfaces | CLI-only project setup prerequisite |
+
+The `RunStore` stays inside `@isv/pipelines` (not `@isv/clients`) because it stores pipeline-internal orchestration state, not external system data. The dependency rule is preserved: `pipelines/` depends on `services/` and `domain/`, not on `clients/`.
+
 ## Open Questions
 
 1. ~~**Tech stack**: Which language/runtime?~~ → **Decided:** TypeScript, Node.js 24 LTS, pnpm. See [techstack.md](techstack.md).
-2. **Persistence between phases**: File-based JSON artifacts on disk, or in-memory pipeline? → **Needs human decision.**
+2. ~~**Persistence between phases**~~ → **Decided:** Phase 1 uses JSONL checkpoint files. Phase 2 adds `node:sqlite` behind a `RunStore` port interface. See Batch Processing Architecture above.
 3. **Time tracking ingestion**: Manual file drop into `data/` or automated pull from an external system? → **Needs human decision** (concept doc describes file-based).
 4. ~~**Monorepo vs. multi-repo**~~ → **Decided:** pnpm workspace monorepo. Each architecture layer is a separate package (`@isv/domain`, `@isv/clients`, `@isv/services`, `@isv/pipelines`). See [techstack.md](techstack.md).
 5. **CI/CD integration**: The Big Picture mentions GitHub Actions / GitLab CI — which platform? → **Needs human decision** before `pipeline/` design.

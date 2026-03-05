@@ -78,6 +78,31 @@ These are initial recommendations based on requirements from the concept documen
 | Statistics | `simple-statistics` | Linear regression and R² for Historical Calibration |
 | Testing | `vitest` | Unit and integration tests |
 
+## Key Libraries (Decided)
+
+Libraries confirmed through architectural decisions. Recorded here as the canonical list.
+
+| Concern | Library | Status | Decision rationale |
+| --- | --- | --- | --- |
+| Concurrent queue | `p-queue` | **Decided** (Phase 2) | Pure ESM, 19M/week downloads, feature-complete. Provides concurrency limiting, per-task timeout, pause/resume, and event-driven progress. Chosen over custom Semaphore/WorkQueue implementation and over `@tanstack/pacer` (pre-1.0, client-side focused). |
+| Retry with backoff | `p-retry` | **Decided** (Phase 2) | Pure ESM, 31M/week downloads. Exponential backoff with `shouldRetry` predicate and `AbortSignal`. Replaces Phase 1's hand-rolled `retryAsync`. |
+| Local data store | `node:sqlite` | **Decided** (Phase 2) | Built into Node.js 24 — zero external dependencies. Synchronous `DatabaseSync` API (stable since Node 22.5). Full SQL for run/cluster state queries. Abstracted behind `RunStore` port interface with `better-sqlite3` as drop-in fallback. See [architecture.md § Batch Processing Architecture](architecture.md#batch-processing-architecture). |
+| Web UI | SvelteKit | **Decided** | Demo and visualization interface only. No calibration trigger in web UI. |
+
+### Alternatives evaluated and rejected
+
+| Library | Reason rejected |
+| --- | --- |
+| `@tanstack/pacer` | Pre-1.0 (v0.19), self-described as client-side only, pulls in `@tanstack/store` UI dependency |
+| `better-queue` | CJS only, unmaintained (3+ years), no native TypeScript types |
+| `bullmq` / `bee-queue` | Require Redis — violates no-infrastructure constraint |
+| `fastq` | CJS-first, no event system, optimized for throughput not I/O orchestration |
+| `better-sqlite3` | Viable fallback but adds native addon (10 MB prebuilt), `@types` from DefinitelyTyped, potential build issues on new Node releases. `node:sqlite` preferred for zero-dependency simplicity. |
+| `sql.js` | WASM-based, 19 MB, entire DB must be in memory, manual persistence — wrong tradeoffs for Node.js CLI |
+| `drizzle-orm` | ORM overhead unjustified for 2–3 tables in a CLI pipeline |
+| `lowdb` | No in-place updates, serializes entire dataset on every write |
+| `lmdb-js` / `classic-level` | Key-value only — no SQL means manually building secondary indexes for status/run queries |
+
 ## Open Decisions
 
 - **API framework**: `fastify` vs. `hono` for the REST API interface — to be decided when the API layer is implemented.
