@@ -70,7 +70,11 @@ export const POST: RequestHandler = async ({ request }) => {
     const pipelineConfig = projectConfig.pipeline as
       | Record<string, unknown>
       | undefined;
-    const d3QualityFloor = (pipelineConfig?.d3QualityFloor as 1 | 2 | 3 | undefined) ?? undefined;
+    const rawFloor = pipelineConfig?.d3QualityFloor;
+    const d3QualityFloor =
+      rawFloor === 1 || rawFloor === 2 || rawFloor === 3
+        ? rawFloor
+        : undefined;
 
     // Run the pipeline
     const result = await pipeline.run(ticketId, { d3QualityFloor });

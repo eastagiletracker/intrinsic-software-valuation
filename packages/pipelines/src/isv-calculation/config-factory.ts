@@ -87,15 +87,35 @@ export async function createIsvCalculationFromConfig(
       | undefined;
 
     const dataFolderName =
+      (jiraConfig.dataFolderName as string | undefined) ??
+      (gitConfig.dataFolderName as string | undefined) ??
       (projectMeta?.dataFolderName as string | undefined) ??
       (projectMeta?.slug as string | undefined) ??
       "";
+
+    // Validate required field: ticketPrefix
+    const ticketPrefix =
+      (jiraConfig.ticketPrefix as string | undefined) ??
+      (projectMeta?.ticketPrefix as string | undefined) ??
+      "";
+
+    if (!ticketPrefix) {
+      return {
+        success: false,
+        error: {
+          code: "INVALID_PROJECT_CONFIG",
+          message:
+            "Project config is missing ticketPrefix in jira or project section",
+          source: "config-factory",
+        },
+      };
+    }
 
     // 1. Create clients
     const ticketClient = await createTicketClient({
       dataFolderName:
         (jiraConfig.dataFolderName as string | undefined) ?? dataFolderName,
-      ticketPrefix: (jiraConfig.ticketPrefix as string) ?? "",
+      ticketPrefix,
       rawFormat: (jiraConfig.rawFormat as "jira-xml") ?? "jira-xml",
     });
 
