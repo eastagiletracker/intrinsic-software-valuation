@@ -49,12 +49,14 @@ export interface IsvCalculationPipelinePort {
    * @param ticketId - The ticket to calculate ISV for.
    * @param config - Pipeline configuration.
    * @param onProgress - Optional callback for progress events.
+   * @param signal - Optional abort signal to cancel a running pipeline.
    * @returns The enriched result with ticket, pipeline intermediates, ISV result, and calibration.
    */
   run(
     ticketId: string,
     config: IsvCalculationConfig,
     onProgress?: PipelineProgressCallback,
+    signal?: AbortSignal,
   ): Promise<Result<EnrichedIsvResult>>;
 }
 

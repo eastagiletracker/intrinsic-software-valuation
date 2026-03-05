@@ -42,7 +42,7 @@ class DefaultLlmClient implements LlmClient {
     this.adapter = adapter;
   }
 
-  async prompt(query: LlmQuery): Promise<Result<string>> {
+  async prompt(query: LlmQuery & { signal?: AbortSignal }): Promise<Result<string>> {
     try {
       const result = await this.adapter.prompt({
         systemPrompt: query.systemPrompt,
@@ -50,6 +50,7 @@ class DefaultLlmClient implements LlmClient {
         temperature: query.temperature,
         maxTokens: query.maxTokens,
         cwd: query.cwd,
+        signal: query.signal,
       });
 
       return { success: true, data: result.text };

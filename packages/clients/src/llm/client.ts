@@ -19,5 +19,5 @@ export interface LlmClient {
    * @param query - Structured query with system/user prompts and optional parameters.
    * @returns A `Promise` resolving to a `Result<string>` with the raw LLM text.
    */
-  prompt(query: LlmQuery): Promise<Result<string>>;
+  prompt(query: LlmQuery & { signal?: AbortSignal }): Promise<Result<string>>;
 }

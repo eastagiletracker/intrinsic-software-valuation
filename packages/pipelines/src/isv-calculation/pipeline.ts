@@ -41,6 +41,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
     ticketId: string,
     config: IsvCalculationConfig,
     onProgress?: PipelineProgressCallback,
+    signal?: AbortSignal,
   ): Promise<Result<EnrichedIsvResult>> {
     /** Safely invoke the progress callback, swallowing any errors it throws. */
     const emit = (event: PipelineProgressEvent): void => {
@@ -50,6 +51,21 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
       } catch (e) {
         console.warn("[isv-pipeline] onProgress callback threw:", e);
       }
+    };
+
+    /** Check if the pipeline has been aborted and return early if so. */
+    const checkAborted = (): Result<EnrichedIsvResult> | undefined => {
+      if (signal?.aborted) {
+        return {
+          success: false,
+          error: {
+            code: "PIPELINE_ABORTED",
+            message: "Pipeline was aborted (client disconnected).",
+            source: "isv-calculation-pipeline",
+          },
+        };
+      }
+      return undefined;
     };
 
     try {
@@ -120,11 +136,20 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         // Step 4: Architecture Scanner → SystemContext[] (one per repo)
         const repoBaselines: RepositoryBaseline[] = [];
         const repoPipelineResults: RepositoryPipelineResult[] = [];
+
+        // Wrap the LLM client so every invocation carries the abort signal.
+        const signalledLlm: LlmClient = {
+          prompt: (query) => this.llmClient.prompt({ ...query, signal }),
+        };
+
         for (let i = 0; i < workingTrees.length; i++) {
+          const aborted = checkAborted();
+          if (aborted) return aborted;
+
           const tree = workingTrees[i];
           const scanResult = await this.architectureScanner.scan(
             tree.workingDir,
-            this.llmClient,
+            signalledLlm,
           );
           if (!scanResult.success) return scanResult;
 
@@ -190,11 +215,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         });
 
         // Step 7: Gap Analyzer → GapAnalysisResult
+        const abortedBeforeGap = checkAborted();
+        if (abortedBeforeGap) return abortedBeforeGap;
+
         const gapResult = await this.gapAnalyzer.analyze(
           systemBaseline,
           ticket,
           projectConfig,
-          this.llmClient,
+          signalledLlm,
         );
         if (!gapResult.success) return gapResult;
 

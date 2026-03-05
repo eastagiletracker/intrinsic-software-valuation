@@ -52,13 +52,17 @@ export class GithubCopilotCliAdapter implements LlmPort {
     const cwd = input.cwd ?? this.defaultCwd ?? process.cwd();
     const combinedPrompt = input.systemPrompt + "\n\n" + input.userPrompt;
 
-    const text = await this.execCli(combinedPrompt, cwd);
+    const text = await this.execCli(combinedPrompt, cwd, input.signal);
     return { text };
   }
 
-  private execCli(prompt: string, cwd: string): Promise<string> {
+  private execCli(prompt: string, cwd: string, signal?: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
-      execFile(
+      if (signal?.aborted) {
+        reject(new Error("LLM request aborted."));
+        return;
+      }
+      const child = execFile(
         "gh",
         ["copilot", "-p", prompt, "-s", "--no-auto-update"],
         {
@@ -96,6 +100,17 @@ export class GithubCopilotCliAdapter implements LlmPort {
           resolve(stripAnsi(stdout));
         },
       );
+
+      // Kill the child process if the signal is aborted while it's running.
+      if (signal) {
+        const onAbort = () => {
+          child.kill();
+          reject(new Error("LLM request aborted."));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        // Clean up the listener when the child exits normally.
+        child.on("exit", () => signal.removeEventListener("abort", onAbort));
+      }
     });
   }
 }
