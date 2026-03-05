@@ -75,7 +75,7 @@ async function runCalibrate(args: string[]): Promise<void> {
   try {
     const effectiveRunId =
       runId ??
-      `cal-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
+      `cal-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${Math.random().toString(36).slice(2, 8)}`;
 
     const result = await pipeline.run({
       projectSlug,

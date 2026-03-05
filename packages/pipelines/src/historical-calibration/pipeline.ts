@@ -292,7 +292,6 @@ class HistoricalCalibrationPipeline
           // Checkout repos at T0 — retryable (external I/O)
           const trees = await retryAsync(
             () => this.gitClient.checkoutAll(timestampT0),
-            { delay: async () => {} },
           );
 
           // Collect trees for per-cluster release
@@ -349,7 +348,6 @@ class HistoricalCalibrationPipeline
                   workingTrees[0].workingDir,
                   this.llmClient,
                 ),
-              { delay: async () => {} },
             );
             if (!scanResult.success) {
               const reason = `Architecture Scanner failed: ${scanResult.error.message}`;
@@ -391,7 +389,6 @@ class HistoricalCalibrationPipeline
                   projectConfig,
                   this.llmClient,
                 ),
-              { delay: async () => {} },
             );
             if (!gapResult.success) {
               const reason = `Gap Analyzer failed: ${gapResult.error.message}`;
