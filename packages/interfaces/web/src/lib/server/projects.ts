@@ -10,13 +10,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ProjectEntry } from "$lib/types/index.js";
-
-/** Resolve the absolute path to the monorepo data/ directory. */
-function dataDir(): string {
-  // SvelteKit dev server runs from the package root (packages/interfaces/web/).
-  // The monorepo data/ folder is three levels up.
-  return join(process.cwd(), "..", "..", "..", "data");
-}
+import { dataDir } from "./paths.js";
 
 /**
  * Scan data/ for project subdirectories with a valid project-config.json.

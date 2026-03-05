@@ -4,6 +4,7 @@
   import Tooltip from "$lib/components/Tooltip.svelte";
   import ClusterScatterChart from "$lib/components/ClusterScatterChart.svelte";
   import ResidualChart from "$lib/components/ResidualChart.svelte";
+  import { featureLabel } from "$lib/components/feature-labels.js";
 
   let { data }: { data: PageData } = $props();
 
@@ -38,22 +39,6 @@
 
   function formatNumber(n: number, decimals = 3): string {
     return n.toFixed(decimals);
-  }
-
-  /** Human-readable feature name. */
-  function featureLabel(feature: string): string {
-    const labels: Record<string, string> = {
-      A1_Data: "A1 Data",
-      A2_UX: "A2 UX",
-      B1_Logic: "B1 Logic",
-      C1_Integration: "C1 Integration",
-      C2_State: "C2 State",
-      D3_Quality: "D3 Quality",
-      distributionEntropy: "Distribution Entropy",
-      cyclomaticComplexityDelta: "Cyclomatic Complexity Δ",
-      changeIntensityScore: "Change Intensity Score",
-    };
-    return labels[feature] ?? feature;
   }
 
   // Scatter chart data: ISV score vs actual tracked hours

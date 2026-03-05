@@ -11,6 +11,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CalibrationRunOutput } from "@isv/domain";
+import { dataDir } from "./paths.js";
 
 /** Pattern that matches canonical report filenames. */
 const REPORT_PATTERN = /^report-(\d{4}-\d{2})_(\d{4}-\d{2})\.json$/;
@@ -33,11 +34,6 @@ export interface CalibrationReportEntry {
   fitAssessment: "strong" | "moderate" | "weak";
   /** R² value. */
   rSquared: number;
-}
-
-/** Resolve the absolute path to the monorepo data/ directory. */
-function dataDir(): string {
-  return join(process.cwd(), "..", "..", "..", "data");
 }
 
 /** Build path to a project's calibration directory. */
