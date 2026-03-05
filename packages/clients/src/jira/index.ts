@@ -15,3 +15,4 @@ export {
 export { TicketQuerySchema, type TicketQuery } from "./query.schema.js";
 export { createTicketClient } from "./factory.js";
 export { CachedTicketClient } from "./cached-ticket-client.js";
+export { SqliteTicketClient } from "./sqlite-ticket-client.js";

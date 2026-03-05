@@ -20,6 +20,8 @@ import { readFile, mkdir, writeFile, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { warmupProjectData } from "@isv/clients";
+import type { WarmupProgressEvent } from "@isv/clients";
 import type {
   PipelineProgressEvent,
   CalibrationProgressEvent,
@@ -172,6 +174,96 @@ async function runInit(args: string[]): Promise<void> {
   }
 
   console.log("\nProject initialisation complete.");
+
+  // AC-7: --warmup flag triggers SQLite data layer warmup
+  if (hasFlag(args, "--warmup")) {
+    console.log("\n--- Starting data warmup ---\n");
+
+    const configPath = join(dataDir, "project-config.json");
+    if (!existsSync(configPath)) {
+      console.error(
+        "✗ Cannot warmup: project-config.json not found. Run 'isv init --project <slug>' first.",
+      );
+      process.exit(2);
+    }
+
+    let config: Record<string, unknown>;
+    try {
+      const content = await readFile(configPath, "utf-8");
+      config = JSON.parse(content) as Record<string, unknown>;
+    } catch {
+      console.error(`✗ Could not parse config at ${configPath}`);
+      process.exit(2);
+    }
+
+    const jiraConfig = config.jira as Record<string, string> | undefined;
+    const timeTrackingConfig = config.timeTracking as
+      | Record<string, string>
+      | undefined;
+    const projectConfig = config.project as
+      | Record<string, string>
+      | undefined;
+
+    if (!jiraConfig?.rawFormat || !jiraConfig?.dataFolderName) {
+      console.error(
+        "✗ Missing jira.rawFormat or jira.dataFolderName in project config.",
+      );
+      process.exit(2);
+    }
+
+    const ticketPrefix =
+      jiraConfig.ticketPrefix ?? projectConfig?.ticketPrefix ?? "UNKNOWN";
+
+    const phaseLabels: Record<WarmupProgressEvent["phase"], string> = {
+      "discovering-files": "[1/5] Discovering raw files…",
+      "parsing-tickets": "[2/5] Parsing ticket files…",
+      "parsing-time-entries": "[3/5] Parsing time-tracking files…",
+      "writing-database": "[4/5] Writing SQLite database…",
+      complete: "[5/5] Complete",
+    };
+
+    try {
+      const result = await warmupProjectData({
+        projectSlug,
+        cwd,
+        jiraConfig: {
+          rawFormat: jiraConfig.rawFormat,
+          dataFolderName: jiraConfig.dataFolderName,
+          ticketPrefix,
+        },
+        timeTrackingConfig: timeTrackingConfig
+          ? {
+              rawFormat: timeTrackingConfig.rawFormat,
+              dataFolderName: timeTrackingConfig.dataFolderName,
+              ticketPrefix: timeTrackingConfig.ticketPrefix,
+            }
+          : undefined,
+        onProgress: (event) => {
+          const label = phaseLabels[event.phase] ?? event.phase;
+          const detail = event.detail ? ` ${event.detail}` : "";
+          console.log(`${label}${detail}`);
+        },
+      });
+
+      console.log(`\n✓ Warmup complete (${result.durationMs}ms)`);
+      console.log(`  Tickets:      ${result.ticketCount}`);
+      console.log(`  Time entries: ${result.timeEntryCount}`);
+      console.log(`  Database:     ${result.dbPath}`);
+      console.log(`  Source files: ${result.sourceFiles.length}`);
+
+      if (result.errors.length > 0) {
+        console.log(`\n  ⚠ ${result.errors.length} parse warning(s):`);
+        for (const err of result.errors) {
+          console.log(`    - ${err}`);
+        }
+      }
+    } catch (err) {
+      console.error(
+        `\n✗ Warmup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(2);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,13 +375,13 @@ Usage:
   isv calculate <ticketId> --project <slug> [options]
   isv calibrate --project <slug> [options]
   isv calibrate --status --project <slug> [--run-id <id>]
-  isv init --project <slug>
+  isv init --project <slug> [--warmup]
   isv --help
 
 Commands:
   calculate   Calculate the ISV for a single ticket
   calibrate   Run historical calibration for a project
-  init        Initialise project structure
+  init        Initialise project structure (--warmup to build SQLite data layer)
 
 Global Options:
   --help      Show help (use with a command for command-specific help)

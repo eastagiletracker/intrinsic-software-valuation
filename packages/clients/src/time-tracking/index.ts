@@ -18,3 +18,4 @@ export {
 } from "./query.schema.js";
 export { createTimeTrackingClient } from "./factory.js";
 export { CachedTimeTrackingClient } from "./cached-time-tracking-client.js";
+export { SqliteTimeTrackingClient } from "./sqlite-time-tracking-client.js";
