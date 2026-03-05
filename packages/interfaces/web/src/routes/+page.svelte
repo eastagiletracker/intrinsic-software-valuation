@@ -32,7 +32,7 @@
     { id: 'repos-checked-out', label: 'Checking out repositories' },
     { id: 'code-health-mined', label: 'Analyzing code health' },
     { id: 'architecture-scanned', label: 'Scanning architecture', aiAssisted: true },
-    { id: 'c2-derived', label: 'Deriving quality state' },
+    { id: 'c2-derived', label: 'Deriving C2 — State Factor (technical debt)' },
     { id: 'gap-analyzed', label: 'Analyzing requirements gap', aiAssisted: true },
     { id: 'factors-assembled', label: 'Assembling ISV factors' },
     { id: 'isv-calculated', label: 'Calculating ISV score' },

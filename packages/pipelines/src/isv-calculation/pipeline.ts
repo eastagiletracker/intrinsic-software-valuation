@@ -74,14 +74,15 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         d3QualityFloor: config.d3QualityFloor ?? 1,
       };
 
-      // Step 1: Fetch ticket from Jira
+      // Step 1: Fetch ticket + subtasks from Jira
       const ticketResult = await this.ticketClient.getTickets({
-        mode: "byTicketNumbers",
-        ticketIds: [ticketId],
+        mode: "withSubtasks",
+        parentIds: [ticketId],
       });
       if (!ticketResult.success) return ticketResult;
-      const tickets = ticketResult.data;
-      if (tickets.length === 0) {
+      const allTickets = ticketResult.data;
+      const ticket = allTickets.find((t) => t.ticketId === ticketId);
+      if (!ticket) {
         return {
           success: false,
           error: {
@@ -91,14 +92,25 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           },
         };
       }
-      const ticket = tickets[0];
+      const subtasks = allTickets.filter((t) => t.parentId === ticketId);
 
       // totalSteps is unknown until we know how many repos there are.
       // Emit a preliminary event with totalSteps=0 (will be corrected after checkout).
       let completedSteps = 0;
       let totalSteps = 0;
       completedSteps++;
-      emit({ step: "ticket-fetched", completedSteps, totalSteps, data: { ticket } });
+      const titlePreview = ticket.title.length > 30
+        ? ticket.title.slice(0, 30) + "…"
+        : ticket.title;
+      const spLabel = ticket.storyPoints != null ? `, ${ticket.storyPoints} SP` : "";
+      const subtaskLabel = subtasks.length > 0 ? `, ${subtasks.length} subtask(s)` : "";
+      emit({
+        step: "ticket-fetched",
+        completedSteps,
+        totalSteps,
+        data: { ticket, subtasks },
+        detail: `${ticket.ticketId} "${titlePreview}" (${ticket.type}${spLabel}${subtaskLabel})`,
+      });
 
       // Step 2: Checkout repositories
       const repoIds =
@@ -113,6 +125,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         completedSteps,
         totalSteps,
         data: { repositoryIds: repoIds },
+        detail: repoIds.join(", "),
       });
 
       try {
@@ -126,11 +139,19 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         const codeHealthReports = mineResult.data;
 
         completedSteps++;
+        const coverages = codeHealthReports
+          .map((r) => r.healthScores.testHealth.coveragePercentage)
+          .filter((c): c is number => c != null);
+        const avgCoverage = coverages.length > 0
+          ? (coverages.reduce((a, b) => a + b, 0) / coverages.length).toFixed(0)
+          : "n/a";
+        const minedRepoNames = codeHealthReports.map((r) => r.repository.repositoryId).join(", ");
         emit({
           step: "code-health-mined",
           completedSteps,
           totalSteps,
           data: { codeHealthReports },
+          detail: `${codeHealthReports.length} repo(s) [${minedRepoNames}] — avg coverage: ${avgCoverage}%`,
         });
 
         // Step 4: Architecture Scanner → SystemContext[] (one per repo)
@@ -189,7 +210,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
               codeHealthReport: healthReport,
               c2State,
             },
-            detail: `repo ${i + 1} of ${workingTrees.length}`,
+            detail: `repo ${i + 1} of ${workingTrees.length} [${tree.repositoryId}]`,
           });
         }
 
@@ -206,12 +227,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           effectiveC2,
         };
 
+        const c2Label = effectiveC2 === 1 ? "clean" : effectiveC2 === 2 ? "moderate debt" : "toxic legacy";
         completedSteps++;
         emit({
           step: "c2-derived",
           completedSteps,
           totalSteps,
           data: { effectiveC2, repositories: repoPipelineResults },
+          detail: `State Factor (technical debt) → C2 = ${effectiveC2} (${c2Label})`,
         });
 
         // Step 7: Gap Analyzer → GapAnalysisResult
@@ -276,6 +299,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           completedSteps,
           totalSteps,
           data: { isvResult, calibration: enriched.calibration },
+          detail: `ISV = ${isvResult.isvScore}`,
         });
 
         return { success: true, data: enriched };

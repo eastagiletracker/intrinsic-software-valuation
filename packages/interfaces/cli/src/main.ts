@@ -418,8 +418,20 @@ async function runCalculate(args: string[]): Promise<void> {
       process.exit(2);
     }
 
-    // Print enriched result to stdout as pretty-printed JSON
-    console.log(JSON.stringify(result.data, null, 2));
+    // Persist enriched result to data/<project>/isv/<ticketId>.json
+    const isvDir = join(cwd, "data", projectSlug, "isv");
+    await mkdir(isvDir, { recursive: true });
+    const outPath = join(isvDir, `${ticketId}.json`);
+    const jsonPayload = JSON.stringify(result.data, null, 2) + "\n";
+    await writeFile(outPath, jsonPayload, "utf-8");
+
+    if (jsonOnly) {
+      // --json: emit to stdout for piping
+      console.log(jsonPayload.trimEnd());
+    } else {
+      console.error(`\n✓ ISV = ${result.data.isvResult.isvScore}`);
+      console.error(`  Result written to data/${projectSlug}/isv/${ticketId}.json`);
+    }
   } finally {
     await cleanup();
   }
