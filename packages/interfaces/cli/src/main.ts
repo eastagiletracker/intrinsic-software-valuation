@@ -24,6 +24,7 @@ import type {
 import {
   createIsvCalculationFromConfig,
   createHistoricalCalibrationFromConfig,
+  writeCalibrationReport,
 } from "@isv/pipelines";
 
 // ---------------------------------------------------------------------------
@@ -271,6 +272,16 @@ async function runCalibrate(args: string[]): Promise<void> {
     if (!result.success) {
       console.error(JSON.stringify(result.error, null, 2));
       process.exit(2);
+    }
+
+    // Persist report as JSON file under data/<projectSlug>/calibration/
+    const reportPath = await writeCalibrationReport(
+      result.data,
+      projectSlug,
+      cwd,
+    );
+    if (!jsonOnly) {
+      console.error(`Report written to ${reportPath}`);
     }
 
     // Print CalibrationRunOutput to stdout as pretty-printed JSON

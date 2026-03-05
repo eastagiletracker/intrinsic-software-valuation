@@ -47,3 +47,27 @@ export interface PipelineStepState {
   aiAssisted?: boolean;
   detail?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Calibration report types
+// ---------------------------------------------------------------------------
+
+/** Summary metadata for one calibration report in the index listing. */
+export interface CalibrationReportEntry {
+  /** Filename without .json, e.g. "report-2025-01_2026-01" */
+  slug: string;
+  /** Full filename */
+  filename: string;
+  /** Start of calibration period (YYYY-MM). */
+  periodStart: string;
+  /** End of calibration period (YYYY-MM). */
+  periodEnd: string;
+  /** File modification time (ISO string). */
+  createdAt: string;
+  /** Number of clusters in the calibration run. */
+  sampleSize: number;
+  /** Overall fit assessment badge. */
+  fitAssessment: "strong" | "moderate" | "weak";
+  /** R² value. */
+  rSquared: number;
+}
