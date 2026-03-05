@@ -18,8 +18,11 @@ Provides a high-level `TimeTrackingClient` that abstracts raw format details and
 | `query.schema.ts` | `TimeTrackingQuerySchema` — structured filter criteria (ticket IDs, timeframe) |
 | `index.ts` | Public re-exports for the module |
 | `teamleader-excel/` | Adapter for Teamleader `.xlsx` exports |
+| `teamleader-pdf/` | Adapter for Teamleader `.pdf` project exports |
 | `projektron-bcs-excel/` | Adapter for Projektron BCS `.xlsx` invoice exports |
-| `teamleader-excel.adapter.test.ts` | Tier 2: Teamleader adapter against committed fixture |
+| `utils/` | Shared helper functions (`extractTicketIds`, `classifyAttribution`, `parseDateToIso`) |
+| `teamleader-excel.adapter.test.ts` | Tier 2: Teamleader Excel adapter against committed fixture |
+| `teamleader-pdf.adapter.test.ts` | Tier 2: Teamleader PDF adapter against committed fixture |
 | `projektron-bcs-excel.adapter.test.ts` | Tier 2: Projektron BCS adapter against committed fixture |
 | `time-tracking.boundary.test.ts` | Tier 3: full factory → client boundary tests |
 | `time-tracking.realworld.test.ts` | Tier 4: real-data tests using gitignored `data/` exports (skipped in CI) |
@@ -29,6 +32,7 @@ Provides a high-level `TimeTrackingClient` that abstracts raw format details and
 | Format | Adapter | Description |
 |---|---|---|
 | `teamleader-excel` | `TeamleaderExcelAdapter` | Teamleader working-hours Excel export |
+| `teamleader-pdf` | `TeamleaderPdfAdapter` | Teamleader project time-tracking PDF export |
 | `projektron-bcs-excel` | `ProjektronBcsExcelAdapter` | Projektron BCS "Nachweis gebuchter Aufwand für Rechnung" invoice export |
 
 ## How to use
@@ -84,10 +88,12 @@ This client has full four-tier test coverage. See [`docs/qa-strategy.md`](../../
 
 | File | Tier | Description |
 |---|---|---|
-| `teamleader-excel/adapter.test.ts` | 1 — Unit | Teamleader adapter helpers (date parsing, ID extraction, attribution) |
+| `teamleader-excel/adapter.test.ts` | 1 — Unit | Teamleader Excel adapter helpers (date parsing, ID extraction, attribution) |
+| `teamleader-pdf/adapter.test.ts` | 1 — Unit | Teamleader PDF adapter helpers (duration parsing) |
 | `projektron-bcs-excel/adapter.test.ts` | 1 — Unit | Projektron BCS adapter helpers |
-| `teamleader-excel.adapter.test.ts` | 2 — Adapter fixture | Teamleader parse against `teamleader-excel/__fixtures__/sample-timesheet.xlsx` |
+| `teamleader-excel.adapter.test.ts` | 2 — Adapter fixture | Teamleader Excel parse against `teamleader-excel/__fixtures__/sample-timesheet.xlsx` |
+| `teamleader-pdf.adapter.test.ts` | 2 — Adapter fixture | Teamleader PDF parse against `teamleader-pdf/__fixtures__/sample-timesheet.pdf` |
 | `projektron-bcs-excel.adapter.test.ts` | 2 — Adapter fixture | Projektron BCS parse against `projektron-bcs-excel/__fixtures__/sample-timesheet.xlsx` |
 | `factory.test.ts` | 2/3 — Factory | Factory resolution, multi-source discovery, merging, filtering |
-| `time-tracking.boundary.test.ts` | 3 — Component boundary | Factory → client wiring, single and multi-source |
+| `time-tracking.boundary.test.ts` | 3 — Component boundary | Factory → client wiring, single and multi-source, PDF coexistence |
 | `time-tracking.realworld.test.ts` | 4 — Realworld | Real exports (auto-skipped when data absent) |

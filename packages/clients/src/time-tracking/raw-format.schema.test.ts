@@ -9,6 +9,12 @@ describe("TimeTrackingRawFormatSchema", () => {
     );
   });
 
+  it("accepts 'teamleader-pdf'", () => {
+    expect(TimeTrackingRawFormatSchema.parse("teamleader-pdf")).toBe(
+      "teamleader-pdf",
+    );
+  });
+
   it("rejects an unknown format", () => {
     expect(() => TimeTrackingRawFormatSchema.parse("unknown")).toThrow();
   });

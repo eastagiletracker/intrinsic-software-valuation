@@ -49,10 +49,17 @@ function makeSheet(
 
 const mockParse = vi.fn<(filePath: string) => Promise<TimeSheet>>();
 const mockProjektronParse = vi.fn<(filePath: string) => Promise<TimeSheet>>();
+const mockPdfParse = vi.fn<(filePath: string) => Promise<TimeSheet>>();
 
 vi.mock("./teamleader-excel/index.js", () => ({
   TeamleaderExcelAdapter: class {
     parse = mockParse;
+  },
+}));
+
+vi.mock("./teamleader-pdf/index.js", () => ({
+  TeamleaderPdfAdapter: class {
+    parse = mockPdfParse;
   },
 }));
 
@@ -99,6 +106,16 @@ describe("createTimeTrackingClient", () => {
       ticketPrefix: "PROJ",
       dataFolderName: "__test-factory__",
       rawFormat: "teamleader-excel",
+    });
+    expect(client).toBeDefined();
+    expect(typeof client.getTimeSheet).toBe("function");
+  });
+
+  it("returns a client instance for teamleader-pdf", async () => {
+    const client = await createTimeTrackingClient({
+      ticketPrefix: "PROJ",
+      dataFolderName: "__test-factory__",
+      rawFormat: "teamleader-pdf",
     });
     expect(client).toBeDefined();
     expect(typeof client.getTimeSheet).toBe("function");
