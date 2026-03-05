@@ -14,6 +14,8 @@ Reusable presentation components that compose the three-panel dashboard layout.
 | `TicketInput.svelte` | Ticket ID input with prefix label and calculate button |
 | `TicketInfo.svelte` | Ticket metadata display (title, type, description, subtasks, comments) |
 | `PipelineResults.svelte` | Pipeline step results (Status Quo Miner, Architecture Scanner, Gap Analyzer) |
+| `PipelineProgress.svelte` | Pipeline step-by-step progress tracker with 8 steps and visual states |
+| `ElapsedTimer.svelte` | Elapsed time counter (`mm:ss`) for pipeline progress |
 | `IsvResult.svelte` | Final ISV score with formula breakdown and factor listing |
 | `StickyIsvResult.svelte` | Compact sticky ISV result bar fixed at bottom of center panel |
 | `CalibrationPanel.svelte` | Panel 3 — Calibration context (story points, hours, Git metrics, plausibility) |
