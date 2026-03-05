@@ -90,9 +90,15 @@ export const GET: RequestHandler = async ({ url }) => {
         controller.enqueue(encoder.encode(text));
       }
 
+      /** Format and write an SSE event (unnamed data-only, or named event). */
+      function writeSSE(data: unknown, event?: string): void {
+        const payload = JSON.stringify(data);
+        write(event ? `event: ${event}\ndata: ${payload}\n\n` : `data: ${payload}\n\n`);
+      }
+
       /** Progress callback — each event becomes an SSE data line. */
       function onProgress(event: PipelineProgressEvent): void {
-        write(`data: ${JSON.stringify(event)}\n\n`);
+        writeSSE(event);
       }
 
       // Run the pipeline asynchronously
@@ -100,15 +106,15 @@ export const GET: RequestHandler = async ({ url }) => {
         .run(ticketId, { d3QualityFloor }, onProgress)
         .then((result) => {
           if (result.success) {
-            write(`event: done\ndata: ${JSON.stringify({ success: true, data: result.data })}\n\n`);
+            writeSSE({ success: true, data: result.data }, "done");
           } else {
-            write(`event: error\ndata: ${JSON.stringify({ code: result.error.code, message: result.error.message, source: result.error.source })}\n\n`);
+            writeSSE({ code: result.error.code, message: result.error.message, source: result.error.source }, "error");
           }
         })
         .catch((err: unknown) => {
           const message =
             err instanceof Error ? err.message : String(err);
-          write(`event: error\ndata: ${JSON.stringify({ code: "PIPELINE_ERROR", message, source: "web-api" })}\n\n`);
+          writeSSE({ code: "PIPELINE_ERROR", message, source: "web-api" }, "error");
         })
         .finally(async () => {
           await cleanup();

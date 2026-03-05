@@ -50,11 +50,11 @@
     return () => stopTimer();
   });
 
-  let display = $derived(() => {
+  let formattedTime = $derived(() => {
     const m = Math.floor(elapsed / 60);
     const s = elapsed % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   });
 </script>
 
-<span class="font-mono text-sm tabular-nums text-text-secondary">⏱ {display()}</span>
+<span class="font-mono text-sm tabular-nums text-text-secondary">⏱ {formattedTime()}</span>
