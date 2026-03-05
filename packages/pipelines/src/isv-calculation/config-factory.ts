@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { Result } from "@isv/domain";
 import {
   createTicketClient,
@@ -68,11 +70,15 @@ function validateConfig(
  * on `@isv/pipelines` and `@isv/domain`.
  *
  * @param projectConfig - The raw parsed `project-config.json` object.
+ * @param options - Optional settings. `cwd` overrides the working directory
+ *   used to resolve relative `data/` paths so callers (e.g. SvelteKit) do not
+ *   need to mutate `process.cwd()`.
  * @returns A `Result` containing the pipeline and a cleanup function, or a
  *   structured error if the config is invalid or client creation fails.
  */
 export async function createIsvCalculationFromConfig(
   projectConfig: Record<string, unknown>,
+  options?: { cwd?: string },
 ): Promise<Result<ConfigFactoryResult>> {
   // Validate required sections
   const validation = validateConfig(projectConfig);
@@ -86,12 +92,20 @@ export async function createIsvCalculationFromConfig(
       | Record<string, unknown>
       | undefined;
 
-    const dataFolderName =
+    const rawDataFolderName =
       (jiraConfig.dataFolderName as string | undefined) ??
       (gitConfig.dataFolderName as string | undefined) ??
       (projectMeta?.dataFolderName as string | undefined) ??
       (projectMeta?.slug as string | undefined) ??
       "";
+
+    // When an explicit cwd is provided, resolve dataFolderName to an absolute
+    // path. Client factories use `resolve("data", dataFolderName, …)` internally;
+    // passing an absolute segment causes `resolve` to ignore the leading "data"
+    // prefix and produce the correct absolute result without mutating process.cwd().
+    const dataFolderName = options?.cwd
+      ? join(options.cwd, "data", rawDataFolderName)
+      : rawDataFolderName;
 
     // Validate required field: ticketPrefix
     const ticketPrefix =

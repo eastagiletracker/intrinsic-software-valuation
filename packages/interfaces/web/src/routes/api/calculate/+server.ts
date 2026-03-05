@@ -59,14 +59,13 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
 
-  // Client factories resolve paths relative to CWD (they expect monorepo root).
-  // SvelteKit runs from packages/interfaces/web/, so temporarily switch CWD.
-  const originalCwd = process.cwd();
-  process.chdir(monorepoRoot());
-
   try {
-    // Create pipeline from config
-    const factoryResult = await createIsvCalculationFromConfig(projectConfig);
+    // Create pipeline from config — pass monorepo root so the factory resolves
+    // data/ paths correctly without mutating process.cwd() (which would break
+    // Vite's dev server during the long-running pipeline execution).
+    const factoryResult = await createIsvCalculationFromConfig(projectConfig, {
+      cwd: monorepoRoot(),
+    });
     if (!factoryResult.success) {
       const status = factoryResult.error.code === "INVALID_PROJECT_CONFIG" ? 400 : 500;
       return json(
@@ -103,7 +102,17 @@ export const POST: RequestHandler = async ({ request }) => {
     } finally {
       await cleanup();
     }
-  } finally {
-    process.chdir(originalCwd);
+  } catch (err) {
+    return json(
+      {
+        success: false,
+        error: {
+          code: "PIPELINE_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+          source: "web-api",
+        },
+      },
+      { status: 500 },
+    );
   }
 };
