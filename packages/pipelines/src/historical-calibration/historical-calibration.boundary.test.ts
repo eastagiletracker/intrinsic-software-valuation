@@ -779,13 +779,9 @@ describe("Historical Calibration Pipeline — boundary test", () => {
           attributionReason: "Direct match",
         },
       ]),
-      calibrate: vi.fn().mockReturnValue({
-        success: true,
-        data: {
-          ...mockCalibration.calibrate([]).data,
-          sampleSize: 4,
-        },
-      }),
+      calibrate: vi.fn().mockReturnValue(
+        mockCalibration.calibrate([]),
+      ),
     };
 
     const pipeline = createHistoricalCalibrationPipeline({

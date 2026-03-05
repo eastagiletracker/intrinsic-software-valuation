@@ -282,7 +282,7 @@ class HistoricalCalibrationPipeline
 
       // --- Concurrent processing via PQueue ---
       const concurrency = config.concurrency ?? 3;
-      const taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
+      const taskTimeoutMs = config.taskTimeoutMs ?? 300_000; // 5 min
 
       const queue = new PQueue({
         concurrency,
@@ -466,7 +466,9 @@ class HistoricalCalibrationPipeline
         },
       );
 
-      // Wait for all tasks (or until queue is paused by SIGINT)
+      // Wait for all tasks. Using allSettled instead of all so that
+      // individual task rejections (e.g. timeout) don't abort the queue —
+      // each task already handles its own errors via the try/catch inside.
       await Promise.allSettled(clusterTasks);
 
       // If SIGINT was received, wait for any in-flight tasks then exit

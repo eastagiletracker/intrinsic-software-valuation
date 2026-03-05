@@ -75,8 +75,8 @@ export async function retryAsync<T>(
         await options.onFailedAttempt(failedAttempt);
       }
       if (customDelay) {
-        // Skip the delay when shouldRetry says "don't retry" —
-        // p-retry calls onFailedAttempt before checking shouldRetry.
+        // Skip delay when shouldRetry returned false — p-retry calls
+        // onFailedAttempt before checking shouldRetry, so we guard here.
         if (shouldRetry && !shouldRetry(failedAttempt.error)) return;
         const attempt = failedAttempt.attemptNumber - 1; // 0-based
         const delayMs = baseDelayMs * Math.pow(backoffFactor, attempt);

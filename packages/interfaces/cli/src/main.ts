@@ -364,11 +364,7 @@ async function runCalibrate(args: string[]): Promise<void> {
 
     if (!result.success) {
       console.error(`\nCalibration failed: ${result.error.message}`);
-      if (sigintReceived) {
-        process.removeListener("SIGINT", sigintHandler);
-        process.exit(130);
-      }
-      process.exit(1);
+      process.exit(sigintReceived ? 130 : 1);
     }
 
     // Write result JSON

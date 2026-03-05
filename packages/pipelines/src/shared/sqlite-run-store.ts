@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname } from "node:path";
 
 import type { CalibrationRunOutput, ShipUnitCluster } from "@isv/domain";
@@ -59,12 +60,13 @@ export class SqliteRunStore implements RunStore {
     // Ensure parent directory exists
     mkdirSync(dirname(dbPath), { recursive: true });
 
-    // Dynamic import of node:sqlite to keep the module loadable on older
-    // Node versions that lack the built-in.
+    // Dynamic require of node:sqlite via createRequire for ESM compatibility.
+    // Constructor must be synchronous (RunStore port has no async methods),
+    // so async import() is not an option here.
     let DatabaseSyncCtor: new (path: string) => DatabaseSync;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const sqliteMod = require("node:sqlite");
+      const esmRequire = createRequire(import.meta.url);
+      const sqliteMod = esmRequire("node:sqlite");
       DatabaseSyncCtor = sqliteMod.DatabaseSync;
     } catch {
       throw new Error(
