@@ -2,8 +2,8 @@
   ISV Web UI — Main page
 
   Three-panel layout:
-  - Left: Project Selector sidebar
-  - Center: ISV Calculator (ticket input + results)
+  - Left: Project Selector sidebar (collapsible)
+  - Center: ISV Calculator (ticket input + results + sticky ISV bar)
   - Right: Calibration Context panel
 -->
 <script lang="ts">
@@ -14,6 +14,7 @@
   import TicketInfo from '$lib/components/TicketInfo.svelte';
   import PipelineResults from '$lib/components/PipelineResults.svelte';
   import IsvResult from '$lib/components/IsvResult.svelte';
+  import StickyIsvResult from '$lib/components/StickyIsvResult.svelte';
   import CalibrationPanel from '$lib/components/CalibrationPanel.svelte';
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -26,6 +27,9 @@
 
   let loading = $state(false);
   let error = $state<{ code: string; message: string; source?: string } | null>(null);
+
+  // Sidebar collapsed state (AC-UI-1)
+  let sidebarCollapsed = $state(false);
 
   // Result state (will be populated when pipeline is integrated)
   let ticketData = $state<Record<string, unknown> | null>(null);
@@ -56,6 +60,10 @@
     isvResult = null;
     calibrationData = null;
     error = null;
+  }
+
+  function toggleSidebar() {
+    sidebarCollapsed = !sidebarCollapsed;
   }
 
   async function handleCalculate(ticketId: string) {
@@ -98,11 +106,12 @@
   }
 </script>
 
-<!-- Panel 1: Sidebar -->
-<Sidebar {projects} {activeSlug} onselect={selectProject} />
+<!-- Panel 1: Sidebar (AC-UI-1) -->
+<Sidebar {projects} {activeSlug} onselect={selectProject} collapsed={sidebarCollapsed} ontoggle={toggleSidebar} />
 
 <!-- Panel 2: Center — ISV Calculator -->
-<main class="flex min-w-0 flex-1 flex-col overflow-y-auto">
+<!-- AC-UI-1.8: Panels expand naturally via flex-1 when sidebar collapses -->
+<main class="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
   {#if activeProject}
     <!-- Ticket Input -->
     <div class="sticky top-0 z-10 border-b border-border bg-surface px-6 py-4 shadow-sm">
@@ -119,7 +128,8 @@
     </div>
 
     <!-- Results area -->
-    <div class="flex-1 space-y-4 p-6">
+    <!-- AC-UI-2.4: Bottom padding when sticky bar is present so last content item is reachable -->
+    <div class="flex-1 space-y-4 p-6" class:pb-24={isvResult && !loading && !error}>
       {#if loading}
         <!-- AC-2.4: Skeleton loading states -->
         <Card title="Ticket Information">
@@ -148,6 +158,7 @@
         {#if pipelineResults}
           <PipelineResults pipelineResults={pipelineResults as any} />
         {/if}
+        <!-- AC-UI-2.7: Full-detail IsvResult card retained in scrollable area -->
         <IsvResult result={isvResult as any} />
       {:else}
         <!-- Initial empty state -->
@@ -164,6 +175,11 @@
         </div>
       {/if}
     </div>
+
+    <!-- AC-UI-2.1/AC-UI-2.5: Sticky ISV result bar, only when result is available -->
+    {#if isvResult && !loading && !error}
+      <StickyIsvResult result={isvResult as any} />
+    {/if}
   {:else}
     <!-- No project selected -->
     <div class="flex flex-1 items-center justify-center">
