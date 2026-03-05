@@ -1,7 +1,13 @@
 import { json } from "@sveltejs/kit";
+import { join } from "node:path";
 import type { RequestHandler } from "./$types.js";
 import { readProjectConfig } from "$lib/server/projects.js";
 import { createIsvCalculationFromConfig } from "@isv/pipelines";
+
+/** Resolve the monorepo root (three levels above the SvelteKit package root). */
+function monorepoRoot(): string {
+  return join(process.cwd(), "..", "..", "..");
+}
 
 /**
  * POST /api/calculate
@@ -53,42 +59,51 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
 
-  // Create pipeline from config
-  const factoryResult = await createIsvCalculationFromConfig(projectConfig);
-  if (!factoryResult.success) {
-    const status = factoryResult.error.code === "INVALID_PROJECT_CONFIG" ? 400 : 500;
-    return json(
-      { success: false, error: factoryResult.error },
-      { status },
-    );
-  }
-
-  const { pipeline, cleanup } = factoryResult.data;
+  // Client factories resolve paths relative to CWD (they expect monorepo root).
+  // SvelteKit runs from packages/interfaces/web/, so temporarily switch CWD.
+  const originalCwd = process.cwd();
+  process.chdir(monorepoRoot());
 
   try {
-    // Extract pipeline config from project config
-    const pipelineConfig = projectConfig.pipeline as
-      | Record<string, unknown>
-      | undefined;
-    const rawFloor = pipelineConfig?.d3QualityFloor;
-    const d3QualityFloor =
-      rawFloor === 1 || rawFloor === 2 || rawFloor === 3
-        ? rawFloor
-        : undefined;
-
-    // Run the pipeline
-    const result = await pipeline.run(ticketId, { d3QualityFloor });
-
-    if (!result.success) {
-      const status = result.error.code === "TICKET_NOT_FOUND" ? 404 : 500;
+    // Create pipeline from config
+    const factoryResult = await createIsvCalculationFromConfig(projectConfig);
+    if (!factoryResult.success) {
+      const status = factoryResult.error.code === "INVALID_PROJECT_CONFIG" ? 400 : 500;
       return json(
-        { success: false, error: result.error },
+        { success: false, error: factoryResult.error },
         { status },
       );
     }
 
-    return json({ success: true, data: result.data });
+    const { pipeline, cleanup } = factoryResult.data;
+
+    try {
+      // Extract pipeline config from project config
+      const pipelineConfig = projectConfig.pipeline as
+        | Record<string, unknown>
+        | undefined;
+      const rawFloor = pipelineConfig?.d3QualityFloor;
+      const d3QualityFloor =
+        rawFloor === 1 || rawFloor === 2 || rawFloor === 3
+          ? rawFloor
+          : undefined;
+
+      // Run the pipeline
+      const result = await pipeline.run(ticketId, { d3QualityFloor });
+
+      if (!result.success) {
+        const status = result.error.code === "TICKET_NOT_FOUND" ? 404 : 500;
+        return json(
+          { success: false, error: result.error },
+          { status },
+        );
+      }
+
+      return json({ success: true, data: result.data });
+    } finally {
+      await cleanup();
+    }
   } finally {
-    await cleanup();
+    process.chdir(originalCwd);
   }
 };

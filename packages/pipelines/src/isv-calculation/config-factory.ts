@@ -163,11 +163,19 @@ export async function createIsvCalculationFromConfig(
 
     return { success: true, data: { pipeline, cleanup } };
   } catch (err) {
+    // Git client and other adapters throw ServiceError objects (plain objects),
+    // not Error instances. Extract the message from known shapes.
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
     return {
       success: false,
       error: {
         code: "PIPELINE_INIT_FAILED",
-        message: err instanceof Error ? err.message : String(err),
+        message,
         source: "config-factory",
       },
     };
