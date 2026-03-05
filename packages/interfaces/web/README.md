@@ -77,3 +77,47 @@ The UI (interface layer) depends on `@isv/pipelines` and `@isv/domain` only. It 
 - **Read-only**: No write-back to any external system
 - **Local-only**: Runs exclusively on `localhost` via `pnpm dev`
 - **No authentication**: Designed for single-user local development use
+
+## API Endpoints
+
+### `GET /api/projects`
+
+Returns the list of available projects discovered from `data/*/project-config.json`.
+
+### `POST /api/calculate`
+
+Runs the full ISV calculation pipeline for a single ticket. The endpoint reads the
+project configuration, instantiates all required clients and services via the
+config-based pipeline factory from `@isv/pipelines`, and returns the enriched result.
+
+**Request body:**
+
+```json
+{ "ticketId": "PROJ-123", "projectSlug": "my-project" }
+```
+
+**Success response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "ticket": { "ticketId": "", "type": "", "title": "", "description": "", "labels": [], "comments": [] },
+    "pipelineResults": {
+      "repositories": [{ "repositoryId": "", "codeHealthReport": {}, "systemContext": {}, "c2State": 1, "provenance": {} }],
+      "effectiveC2": 1,
+      "gapAnalysis": {}
+    },
+    "isvResult": { "formulaVersion": "", "ticketId": "", "factors": {}, "breakdown": {}, "isvScore": 0 },
+    "calibration": { "storyPoints": 0 }
+  }
+}
+```
+
+**Error response:**
+
+```json
+{ "success": false, "error": { "code": "PIPELINE_FAILED", "message": "...", "source": "..." } }
+```
+
+**Required project config sections:** `jira`, `git`, `llm` — see `packages/pipelines/src/isv-calculation/README.md` for details.
