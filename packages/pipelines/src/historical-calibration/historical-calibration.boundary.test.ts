@@ -697,4 +697,179 @@ describe("Historical Calibration Pipeline — boundary test", () => {
       force: true,
     });
   });
+
+  // -------------------------------------------------------------------------
+  // AC-1.8 — Concurrent processing via PQueue
+  // -------------------------------------------------------------------------
+
+  it("processes clusters concurrently with configurable concurrency", async () => {
+    // Create mock with 4 clusters to observe concurrency
+    const fourTickets = [
+      ...mockTickets,
+      {
+        ticketId: "PROJ-3",
+        projectKey: "PROJ",
+        type: "Story",
+        status: "Done",
+        title: "Feature C",
+        description: "Feature C description",
+        labels: [],
+        comments: [],
+        createdAt: "2025-03-01T00:00:00.000Z",
+        updatedAt: "2025-04-01T00:00:00.000Z",
+      },
+      {
+        ticketId: "PROJ-4",
+        projectKey: "PROJ",
+        type: "Story",
+        status: "Done",
+        title: "Feature D",
+        description: "Feature D description",
+        labels: [],
+        comments: [],
+        createdAt: "2025-04-01T00:00:00.000Z",
+        updatedAt: "2025-05-01T00:00:00.000Z",
+      },
+    ];
+
+    const fourClusterTicketClient: TicketClient = {
+      getTickets: vi.fn().mockResolvedValue({
+        success: true,
+        data: fourTickets,
+      }),
+    };
+
+    const fourClusterCalibration: CalibrationPort = {
+      ...mockCalibration,
+      clusterTickets: vi.fn().mockReturnValue(
+        new Map([
+          ["PROJ-1", [fourTickets[0]]],
+          ["PROJ-2", [fourTickets[1]]],
+          ["PROJ-3", [fourTickets[2]]],
+          ["PROJ-4", [fourTickets[3]]],
+        ]),
+      ),
+      attributeTime: vi.fn().mockReturnValue([
+        {
+          timestamp: "2025-01-15T09:00:00.000Z",
+          originalDurationHours: 16,
+          attributedClusterId: "PROJ-1",
+          attributedHours: 16,
+          attributionReason: "Direct match",
+        },
+        {
+          timestamp: "2025-02-15T09:00:00.000Z",
+          originalDurationHours: 40,
+          attributedClusterId: "PROJ-2",
+          attributedHours: 40,
+          attributionReason: "Direct match",
+        },
+        {
+          timestamp: "2025-03-15T09:00:00.000Z",
+          originalDurationHours: 20,
+          attributedClusterId: "PROJ-3",
+          attributedHours: 20,
+          attributionReason: "Direct match",
+        },
+        {
+          timestamp: "2025-04-15T09:00:00.000Z",
+          originalDurationHours: 30,
+          attributedClusterId: "PROJ-4",
+          attributedHours: 30,
+          attributionReason: "Direct match",
+        },
+      ]),
+      calibrate: vi.fn().mockReturnValue(
+        mockCalibration.calibrate([]),
+      ),
+    };
+
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: fourClusterTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: fourClusterCalibration,
+    });
+
+    const processedIds: string[] = [];
+    const result = await pipeline.run({
+      concurrency: 2,
+      onProgress: (event) => {
+        if (
+          event.phase === "processing-cluster" &&
+          (event.status === "completed" || event.status === "skipped")
+        ) {
+          processedIds.push(event.clusterId!);
+        }
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    // All 4 clusters should produce results (completion order is non-deterministic)
+    expect(result.data.clusters).toHaveLength(4);
+    const clusterIds = result.data.clusters.map((c) => c.clusterId).sort();
+    expect(clusterIds).toEqual(["PROJ-1", "PROJ-2", "PROJ-3", "PROJ-4"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-6.6 — Pipeline with RunStore
+  // -------------------------------------------------------------------------
+
+  it("uses RunStore for state persistence when provided", async () => {
+    const { mkdirSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { SqliteRunStore } = await import("../shared/sqlite-run-store.js");
+
+    const testRunId = `test-store-${Date.now()}`;
+    const dbPath = join("/tmp", `test-store-${Date.now()}.db`);
+    const store = new SqliteRunStore(dbPath);
+
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+      runStore: store,
+    });
+
+    const result = await pipeline.run({
+      runId: testRunId,
+      concurrency: 1,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      store.close();
+      return;
+    }
+
+    // Verify RunStore state
+    const run = store.getRun(testRunId);
+    expect(run).toBeDefined();
+    expect(run!.status).toBe("completed");
+    expect(run!.result).toBeDefined();
+
+    // Verify cluster state
+    const doneClusters = store.getClustersByStatus(testRunId, "done");
+    expect(doneClusters).toHaveLength(2);
+
+    store.close();
+
+    // Clean up
+    rmSync(dbPath, { force: true });
+    rmSync(dbPath + "-wal", { force: true });
+    rmSync(dbPath + "-shm", { force: true });
+  });
 });

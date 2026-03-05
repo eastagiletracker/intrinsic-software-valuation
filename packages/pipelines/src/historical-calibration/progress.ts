@@ -19,7 +19,7 @@ export interface CalibrationProgressEvent {
   current: number;
   total: number;
   clusterId?: string;
-  status?: "processing" | "completed" | "skipped" | "restored";
+  status?: "processing" | "completed" | "skipped" | "restored" | "retrying" | "failed";
   detail?: string;
 }
 

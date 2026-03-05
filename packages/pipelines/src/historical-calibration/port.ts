@@ -40,4 +40,10 @@ export interface HistoricalCalibrationConfig {
   onProgress?: CalibrationProgressCallback;
   /** Optional run ID for checkpoint/resume. When omitted, a timestamp-based ID is generated. */
   runId?: string;
+  /** Maximum number of clusters processed concurrently. Default: 3. */
+  concurrency?: number;
+  /** Maximum concurrent LLM API calls across all workers. Default: 2. */
+  llmConcurrency?: number;
+  /** Per-task timeout in milliseconds. Default: 300 000 (5 min). */
+  taskTimeoutMs?: number;
 }
