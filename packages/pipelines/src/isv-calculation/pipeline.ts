@@ -15,7 +15,12 @@ import type {
 
 import type { EnrichedIsvResult } from "./enriched-result.js";
 import type { RepositoryPipelineResult } from "./enriched-result.js";
-import type { IsvCalculationPipelinePort, IsvCalculationConfig } from "./port.js";
+import type {
+  IsvCalculationPipelinePort,
+  IsvCalculationConfig,
+  PipelineProgressCallback,
+  PipelineProgressEvent,
+} from "./port.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline implementation
@@ -35,7 +40,18 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
   async run(
     ticketId: string,
     config: IsvCalculationConfig,
+    onProgress?: PipelineProgressCallback,
   ): Promise<Result<EnrichedIsvResult>> {
+    /** Safely invoke the progress callback, swallowing any errors it throws. */
+    const emit = (event: PipelineProgressEvent): void => {
+      if (!onProgress) return;
+      try {
+        onProgress(event);
+      } catch (e) {
+        console.warn("[isv-pipeline] onProgress callback threw:", e);
+      }
+    };
+
     try {
       const now = new Date().toISOString();
       const projectConfig: ProjectConfig = {
@@ -61,10 +77,27 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
       }
       const ticket = tickets[0];
 
+      // totalSteps is unknown until we know how many repos there are.
+      // Emit a preliminary event with totalSteps=0 (will be corrected after checkout).
+      let completedSteps = 0;
+      let totalSteps = 0;
+      completedSteps++;
+      emit({ step: "ticket-fetched", completedSteps, totalSteps, data: { ticket } });
+
       // Step 2: Checkout repositories
       const repoIds =
         config.repositoryIds ?? this.gitClient.repositoryIds();
       const trees = await this.gitClient.checkoutAll(now);
+
+      // Now we know the repo count: base 7 steps + repos for architecture-scanned
+      totalSteps = 7 + repoIds.length;
+      completedSteps++;
+      emit({
+        step: "repos-checked-out",
+        completedSteps,
+        totalSteps,
+        data: { repositoryIds: repoIds },
+      });
 
       try {
         // Step 3: Status Quo Miner → CodeHealthReport[]
@@ -75,6 +108,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         const mineResult = await this.statusQuoMiner.mine(workingTrees, now);
         if (!mineResult.success) return mineResult;
         const codeHealthReports = mineResult.data;
+
+        completedSteps++;
+        emit({
+          step: "code-health-mined",
+          completedSteps,
+          totalSteps,
+          data: { codeHealthReports },
+        });
 
         // Step 4: Architecture Scanner → SystemContext[] (one per repo)
         const repoBaselines: RepositoryBaseline[] = [];
@@ -111,6 +152,20 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
               commitDate: now,
             },
           });
+
+          completedSteps++;
+          emit({
+            step: "architecture-scanned",
+            completedSteps,
+            totalSteps,
+            data: {
+              repositoryId: tree.repositoryId,
+              systemContext: scanResult.data,
+              codeHealthReport: healthReport,
+              c2State,
+            },
+            detail: `repo ${i + 1} of ${workingTrees.length}`,
+          });
         }
 
         // Step 6: Assemble SystemBaseline
@@ -126,6 +181,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           effectiveC2,
         };
 
+        completedSteps++;
+        emit({
+          step: "c2-derived",
+          completedSteps,
+          totalSteps,
+          data: { effectiveC2, repositories: repoPipelineResults },
+        });
+
         // Step 7: Gap Analyzer → GapAnalysisResult
         const gapResult = await this.gapAnalyzer.analyze(
           systemBaseline,
@@ -134,6 +197,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           this.llmClient,
         );
         if (!gapResult.success) return gapResult;
+
+        completedSteps++;
+        emit({
+          step: "gap-analyzed",
+          completedSteps,
+          totalSteps,
+          data: { gapAnalysis: gapResult.data },
+        });
 
         // Step 8: Assemble IsvFactors
         const scoring = gapResult.data.isvScoring;
@@ -145,6 +216,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           C2_State: effectiveC2,
           D3_Quality: scoring.D3_Quality.score,
         };
+
+        completedSteps++;
+        emit({
+          step: "factors-assembled",
+          completedSteps,
+          totalSteps,
+          data: { factors },
+        });
 
         // Step 9: Valuation → IsvResult
         const isvResult = this.valuation.calculate(ticketId, factors);
@@ -162,6 +241,14 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
             storyPoints: ticket.storyPoints,
           },
         };
+
+        completedSteps++;
+        emit({
+          step: "isv-calculated",
+          completedSteps,
+          totalSteps,
+          data: { isvResult, calibration: enriched.calibration },
+        });
 
         return { success: true, data: enriched };
       } finally {

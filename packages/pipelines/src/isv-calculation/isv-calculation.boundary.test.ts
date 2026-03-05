@@ -9,6 +9,7 @@ import type {
 } from "@isv/services";
 
 import { createIsvCalculationPipeline } from "./pipeline.js";
+import type { PipelineProgressEvent } from "./port.js";
 
 // ---------------------------------------------------------------------------
 // Mock ticket
@@ -262,5 +263,155 @@ describe("ISV Calculation Pipeline — boundary test", () => {
 
     await pipeline.run("PROJ-42", {});
     expect(mockGitClient.releaseAll).toHaveBeenCalled();
+  });
+
+  it("emits onProgress events in correct order with correct step values", async () => {
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const events: PipelineProgressEvent[] = [];
+    const onProgress = vi.fn((event: PipelineProgressEvent) => {
+      events.push(event);
+    });
+
+    const result = await pipeline.run("PROJ-42", {}, onProgress);
+    expect(result.success).toBe(true);
+
+    const expectedSteps = [
+      "ticket-fetched",
+      "repos-checked-out",
+      "code-health-mined",
+      "architecture-scanned",
+      "c2-derived",
+      "gap-analyzed",
+      "factors-assembled",
+      "isv-calculated",
+    ];
+    expect(events.map((e) => e.step)).toEqual(expectedSteps);
+  });
+
+  it("increments completedSteps correctly from 1 to totalSteps", async () => {
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const events: PipelineProgressEvent[] = [];
+    await pipeline.run("PROJ-42", {}, (event) => events.push(event));
+
+    // 1 repo → totalSteps = 7 + 1 = 8
+    const totalSteps = 8;
+    expect(events[events.length - 1].completedSteps).toBe(totalSteps);
+    expect(events[events.length - 1].totalSteps).toBe(totalSteps);
+
+    // completedSteps should increment from 1 to totalSteps
+    for (let i = 0; i < events.length; i++) {
+      expect(events[i].completedSteps).toBe(i + 1);
+    }
+  });
+
+  it("includes detail with 'repo N of M' for architecture-scanned events", async () => {
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const events: PipelineProgressEvent[] = [];
+    await pipeline.run("PROJ-42", {}, (event) => events.push(event));
+
+    const archEvents = events.filter((e) => e.step === "architecture-scanned");
+    expect(archEvents).toHaveLength(1);
+    expect(archEvents[0].detail).toBe("repo 1 of 1");
+  });
+
+  it("returns full EnrichedIsvResult when run without onProgress", async () => {
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const result = await pipeline.run("PROJ-42", {});
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.ticket.ticketId).toBe("PROJ-42");
+    expect(result.data.isvResult.isvScore).toBe(4);
+  });
+
+  it("does not crash the pipeline when onProgress throws", async () => {
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const throwingCallback = vi.fn(() => {
+      throw new Error("Callback error");
+    });
+
+    const result = await pipeline.run("PROJ-42", {}, throwingCallback);
+    expect(result.success).toBe(true);
+    // Callback was called multiple times despite throwing
+    expect(throwingCallback).toHaveBeenCalled();
+    expect(throwingCallback.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("does not emit further onProgress events after pipeline fails", async () => {
+    const failingMiner: StatusQuoMinerPort = {
+      mine: vi.fn().mockResolvedValue({
+        success: false,
+        error: {
+          code: "MINE_FAILED",
+          message: "Mining failed",
+          source: "test",
+        },
+      }),
+    };
+
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: failingMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const events: PipelineProgressEvent[] = [];
+    const result = await pipeline.run("PROJ-42", {}, (event) => events.push(event));
+    expect(result.success).toBe(false);
+
+    // Should only have events up to and including repos-checked-out (before the failure)
+    const stepIds = events.map((e) => e.step);
+    expect(stepIds).toContain("ticket-fetched");
+    expect(stepIds).toContain("repos-checked-out");
+    expect(stepIds).not.toContain("code-health-mined");
+    expect(stepIds).not.toContain("architecture-scanned");
   });
 });

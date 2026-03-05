@@ -2,6 +2,39 @@ import type { Result } from "@isv/domain";
 
 import type { EnrichedIsvResult } from "./enriched-result.js";
 
+// ---------------------------------------------------------------------------
+// Pipeline progress event types
+// ---------------------------------------------------------------------------
+
+/** Identifiers for each discrete pipeline step. */
+export type PipelineStepId =
+  | "ticket-fetched"
+  | "repos-checked-out"
+  | "code-health-mined"
+  | "architecture-scanned"
+  | "c2-derived"
+  | "gap-analyzed"
+  | "factors-assembled"
+  | "isv-calculated";
+
+/** Progress event emitted by the pipeline at each step boundary. */
+export interface PipelineProgressEvent {
+  step: PipelineStepId;
+  completedSteps: number;
+  totalSteps: number;
+  /** Partial result payload — shape depends on step. */
+  data?: unknown;
+  /** Human-readable detail for sub-progress (e.g. "repo 2 of 3"). */
+  detail?: string;
+}
+
+/** Callback type for progress observers. */
+export type PipelineProgressCallback = (event: PipelineProgressEvent) => void;
+
+// ---------------------------------------------------------------------------
+// Pipeline port
+// ---------------------------------------------------------------------------
+
 /**
  * ISV Calculation Pipeline port.
  *
@@ -15,9 +48,14 @@ export interface IsvCalculationPipelinePort {
    *
    * @param ticketId - The ticket to calculate ISV for.
    * @param config - Pipeline configuration.
+   * @param onProgress - Optional callback for progress events.
    * @returns The enriched result with ticket, pipeline intermediates, ISV result, and calibration.
    */
-  run(ticketId: string, config: IsvCalculationConfig): Promise<Result<EnrichedIsvResult>>;
+  run(
+    ticketId: string,
+    config: IsvCalculationConfig,
+    onProgress?: PipelineProgressCallback,
+  ): Promise<Result<EnrichedIsvResult>>;
 }
 
 /**
