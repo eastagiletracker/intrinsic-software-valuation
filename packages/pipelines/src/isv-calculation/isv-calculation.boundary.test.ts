@@ -193,9 +193,17 @@ describe("ISV Calculation Pipeline — boundary test", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    const parsed = IsvResultSchema.safeParse(result.data);
+    const parsed = IsvResultSchema.safeParse(result.data.isvResult);
     expect(parsed.success).toBe(true);
-    expect(result.data.isvScore).toBe(4);
+    expect(result.data.isvResult.isvScore).toBe(4);
+
+    // Verify enriched result structure
+    expect(result.data.ticket.ticketId).toBe("PROJ-42");
+    expect(result.data.pipelineResults.repositories).toHaveLength(1);
+    expect(result.data.pipelineResults.repositories[0].repositoryId).toBe("test-repo");
+    expect(result.data.pipelineResults.effectiveC2).toBe(1);
+    expect(result.data.pipelineResults.gapAnalysis.ticketId).toBe("PROJ-42");
+    expect(result.data.calibration.storyPoints).toBeUndefined();
   });
 
   it("calls services in correct order", async () => {
