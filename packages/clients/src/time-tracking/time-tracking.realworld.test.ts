@@ -19,19 +19,26 @@ const XLSX_PATH = resolve(
   "data",
   "unicef",
   "time-tracking",
+  "teamleader",
   "Arbeitszeiten_Unicef_2025.xlsx",
 );
 const DATA_AVAILABLE = existsSync(XLSX_PATH);
+
+const PB_DIR = resolve("data", "unicef", "time-tracking", "projektron-bcs");
+const PB_DATA_AVAILABLE = existsSync(PB_DIR);
+
+/** Shared client config for teamleader-only realworld tests. */
+const TL_CONFIG = {
+  dataFolderName: "unicef",
+  ticketPrefix: "UNICEF",
+  sources: [{ rawFormat: "teamleader-excel" as const, subFolder: "teamleader" }],
+};
 
 describe.skipIf(!DATA_AVAILABLE)(
   "TimeTrackingClient — realworld (unicef)",
   () => {
     it("parses the real Teamleader Excel export", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
 
@@ -40,11 +47,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("all entries have positive duration", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
 
@@ -54,11 +57,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("all entries have valid ISO timestamps", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
 
@@ -70,11 +69,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("all entries have a valid attribution type", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
 
@@ -90,11 +85,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("DIRECT entries have exactly one detected ID", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
       const directEntries = sheet.entries.filter(
@@ -107,11 +98,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("KBV entries have no detected IDs", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
       const kbvEntries = sheet.entries.filter(
@@ -124,11 +111,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("ticket ID filter works with real data", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       // First get all entries and pick a known ticket ID
       const allSheet = await client.getTimeSheet();
@@ -151,11 +134,7 @@ describe.skipIf(!DATA_AVAILABLE)(
     });
 
     it("period boundaries are plausible", async () => {
-      const client = await createTimeTrackingClient({
-        dataFolderName: "unicef",
-        ticketPrefix: "UNICEF",
-        rawFormat: "teamleader-excel",
-      });
+      const client = await createTimeTrackingClient(TL_CONFIG);
 
       const sheet = await client.getTimeSheet();
 
@@ -165,6 +144,125 @@ describe.skipIf(!DATA_AVAILABLE)(
       expect(start.getFullYear()).toBeGreaterThanOrEqual(2024);
       expect(end.getFullYear()).toBeLessThanOrEqual(2026);
       expect(end.getTime()).toBeGreaterThanOrEqual(start.getTime());
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Projektron BCS Excel — real-world tests
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!PB_DATA_AVAILABLE)(
+  "TimeTrackingClient — realworld projektron-bcs (unicef)",
+  () => {
+    it("parses all Projektron BCS Excel exports", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      expect(sheet.entries.length).toBeGreaterThan(0);
+      expect(sheet.sourceSystem).toBe("projektron-bcs");
+    });
+
+    it("all entries have positive duration", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      for (const entry of sheet.entries) {
+        expect(entry.durationHours).toBeGreaterThan(0);
+      }
+    });
+
+    it("all entries have valid ISO timestamps", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      for (const entry of sheet.entries) {
+        expect(entry.timestamp).toMatch(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+        );
+      }
+    });
+
+    it("all entries have a valid attribution type", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      const validTypes = [
+        "DIRECT",
+        "KBV",
+        "MULTI_ID_SPLIT",
+        "UNLINKED_OVERHEAD",
+      ];
+      for (const entry of sheet.entries) {
+        expect(validTypes).toContain(entry.attributionType);
+      }
+    });
+
+    it("period boundaries are plausible", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      const start = new Date(sheet.periodStart);
+      const end = new Date(sheet.periodEnd);
+      expect(start.getFullYear()).toBeGreaterThanOrEqual(2023);
+      expect(end.getFullYear()).toBeLessThanOrEqual(2026);
+      expect(end.getTime()).toBeGreaterThanOrEqual(start.getTime());
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Combined multi-source — real-world test
+// ---------------------------------------------------------------------------
+
+const BOTH_AVAILABLE = DATA_AVAILABLE && PB_DATA_AVAILABLE;
+
+describe.skipIf(!BOTH_AVAILABLE)(
+  "TimeTrackingClient — realworld multi-source (unicef)",
+  () => {
+    it("merges teamleader and projektron-bcs in a single client", async () => {
+      const client = await createTimeTrackingClient({
+        dataFolderName: "unicef",
+        ticketPrefix: "UNICEF",
+        sources: [
+          { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+          { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+        ],
+      });
+
+      const sheet = await client.getTimeSheet();
+      expect(sheet.entries.length).toBeGreaterThan(0);
+      expect(sheet.sourceSystem).toBe("teamleader+projektron-bcs");
     });
   },
 );

@@ -8,6 +8,7 @@ import type { SourceFileMeta } from "../cache/sqlite-data-store.js";
 import { JiraXmlAdapter } from "../jira/jira-xml/index.js";
 import type { TicketPort } from "../jira/port.js";
 import type { TimeTrackingPort } from "../time-tracking/port.js";
+import { ProjektronBcsExcelAdapter } from "../time-tracking/projektron-bcs-excel/index.js";
 import { TeamleaderExcelAdapter } from "../time-tracking/teamleader-excel/index.js";
 
 // ---------------------------------------------------------------------------
@@ -23,9 +24,13 @@ export interface WarmupConfig {
     ticketPrefix: string;
   };
   timeTrackingConfig?: {
-    rawFormat: string;
+    rawFormat?: string;
     dataFolderName: string;
     ticketPrefix?: string;
+    sources?: Array<{
+      rawFormat: string;
+      subFolder: string;
+    }>;
   };
   onProgress?: (event: WarmupProgressEvent) => void;
 }
@@ -59,6 +64,7 @@ const TICKET_FORMAT_EXTENSIONS: Record<string, string[]> = {
 
 const TT_FORMAT_EXTENSIONS: Record<string, string[]> = {
   "teamleader-excel": [".xlsx"],
+  "projektron-bcs-excel": [".xlsx"],
 };
 
 async function discoverFiles(
@@ -108,10 +114,12 @@ function resolveTimeTrackingAdapter(rawFormat: string): TimeTrackingPort {
   switch (rawFormat) {
     case "teamleader-excel":
       return new TeamleaderExcelAdapter();
+    case "projektron-bcs-excel":
+      return new ProjektronBcsExcelAdapter();
     default:
       throw new Error(
         `Unknown time-tracking raw format: "${rawFormat}". ` +
-          'Supported formats: "teamleader-excel".',
+          'Supported formats: "teamleader-excel", "projektron-bcs-excel".',
       );
   }
 }
@@ -167,19 +175,43 @@ export async function warmupProjectData(
   );
 
   let timeTrackingFiles: string[] = [];
+  /** Groups of files per adapter for multi-source parsing. */
+  const ttFileGroups: Array<{ rawFormat: string; files: string[] }> = [];
+
   if (config.timeTrackingConfig) {
     const ttDataDir = resolve(
       config.cwd,
       "data",
       config.timeTrackingConfig.dataFolderName,
     );
-    const ttExtensions =
-      TT_FORMAT_EXTENSIONS[config.timeTrackingConfig.rawFormat] ?? [];
-    timeTrackingFiles = await discoverFiles(
-      ttDataDir,
-      "time-tracking",
-      ttExtensions,
-    );
+
+    if (config.timeTrackingConfig.sources) {
+      // Multi-source: each source has its own subfolder
+      for (const source of config.timeTrackingConfig.sources) {
+        const ext = TT_FORMAT_EXTENSIONS[source.rawFormat] ?? [];
+        const files = await discoverFiles(
+          ttDataDir,
+          join("time-tracking", source.subFolder),
+          ext,
+        );
+        ttFileGroups.push({ rawFormat: source.rawFormat, files });
+        timeTrackingFiles.push(...files);
+      }
+    } else if (config.timeTrackingConfig.rawFormat) {
+      // Legacy single-format
+      const ttExtensions =
+        TT_FORMAT_EXTENSIONS[config.timeTrackingConfig.rawFormat] ?? [];
+      const files = await discoverFiles(
+        ttDataDir,
+        "time-tracking",
+        ttExtensions,
+      );
+      ttFileGroups.push({
+        rawFormat: config.timeTrackingConfig.rawFormat,
+        files,
+      });
+      timeTrackingFiles = files;
+    }
   }
 
   allSourceFiles.push(...ticketFiles, ...timeTrackingFiles);
@@ -217,24 +249,28 @@ export async function warmupProjectData(
   });
 
   let allTimeEntries: TimeEntry[] = [];
-  let sourceSystem = "unknown";
+  const sourceSystems: string[] = [];
 
   if (config.timeTrackingConfig && timeTrackingFiles.length > 0) {
-    const ttAdapter = resolveTimeTrackingAdapter(
-      config.timeTrackingConfig.rawFormat,
-    );
-
-    for (const file of timeTrackingFiles) {
-      try {
-        const sheet: TimeSheet = await ttAdapter.parse(file);
-        sourceSystem = sheet.sourceSystem;
-        allTimeEntries.push(...sheet.entries);
-      } catch (err) {
-        const msg = `Failed to parse time-tracking file ${file}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
+    for (const group of ttFileGroups) {
+      const ttAdapter = resolveTimeTrackingAdapter(group.rawFormat);
+      for (const file of group.files) {
+        try {
+          const sheet: TimeSheet = await ttAdapter.parse(file);
+          if (!sourceSystems.includes(sheet.sourceSystem)) {
+            sourceSystems.push(sheet.sourceSystem);
+          }
+          allTimeEntries.push(...sheet.entries);
+        } catch (err) {
+          const msg = `Failed to parse time-tracking file ${file}: ${err instanceof Error ? err.message : String(err)}`;
+          errors.push(msg);
+        }
       }
     }
   }
+
+  const sourceSystem =
+    sourceSystems.length > 0 ? sourceSystems.join("+") : "unknown";
 
   // 4. Write to SQLite
   emit({ phase: "writing-database" });

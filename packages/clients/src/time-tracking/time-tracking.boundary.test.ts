@@ -11,9 +11,15 @@ import { createTimeTrackingClient } from "./factory.js";
 // Fixture-derived data placed into a temp data folder; no external I/O.
 // ---------------------------------------------------------------------------
 
-const FIXTURE_XLSX = resolve(
+const TL_FIXTURE_XLSX = resolve(
   import.meta.dirname,
   "teamleader-excel",
+  "__fixtures__",
+  "sample-timesheet.xlsx",
+);
+const PB_FIXTURE_XLSX = resolve(
+  import.meta.dirname,
+  "projektron-bcs-excel",
   "__fixtures__",
   "sample-timesheet.xlsx",
 );
@@ -26,7 +32,7 @@ const DATA_DIR = resolve(
 describe("TimeTrackingClient — component boundary", () => {
   beforeEach(async () => {
     await mkdir(DATA_DIR, { recursive: true });
-    await copyFile(FIXTURE_XLSX, resolve(DATA_DIR, "sample.xlsx"));
+    await copyFile(TL_FIXTURE_XLSX, resolve(DATA_DIR, "sample.xlsx"));
   });
 
   afterEach(async () => {
@@ -102,5 +108,65 @@ describe("TimeTrackingClient — component boundary", () => {
 
     const sheet = await client.getTimeSheet();
     expect(sheet.entries).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-source boundary test
+// ---------------------------------------------------------------------------
+
+describe("TimeTrackingClient — multi-source boundary", () => {
+  const tlDir = resolve(DATA_DIR, "teamleader");
+  const pbDir = resolve(DATA_DIR, "projektron-bcs");
+
+  beforeEach(async () => {
+    await mkdir(tlDir, { recursive: true });
+    await mkdir(pbDir, { recursive: true });
+    await copyFile(TL_FIXTURE_XLSX, resolve(tlDir, "teamleader.xlsx"));
+    await copyFile(PB_FIXTURE_XLSX, resolve(pbDir, "projektron.xlsx"));
+  });
+
+  afterEach(async () => {
+    await rm(resolve("data", "__test-timetracking-integration__"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it("merges entries from teamleader and projektron-bcs sources", async () => {
+    const client = await createTimeTrackingClient({
+      dataFolderName: "__test-timetracking-integration__",
+      ticketPrefix: "ACME",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet();
+    // Both fixtures have 11 entries each (12 raw, 1 filtered)
+    expect(sheet.entries).toHaveLength(22);
+    expect(sheet.rawEntryCount).toBe(24);
+    expect(sheet.sourceSystem).toBe("teamleader+projektron-bcs");
+  });
+
+  it("filters merged entries by ticket ID across sources", async () => {
+    const client = await createTimeTrackingClient({
+      dataFolderName: "__test-timetracking-integration__",
+      ticketPrefix: "ACME",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet({
+      ticketIds: ["ACME-200"],
+    });
+    // ACME-200 appears in both fixtures
+    expect(sheet.entries.length).toBeGreaterThanOrEqual(2);
+    for (const entry of sheet.entries) {
+      expect(entry.detectedIds).toContain("ACME-200");
+    }
   });
 });

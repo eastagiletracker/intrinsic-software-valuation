@@ -48,10 +48,17 @@ function makeSheet(
 // ---------------------------------------------------------------------------
 
 const mockParse = vi.fn<(filePath: string) => Promise<TimeSheet>>();
+const mockProjektronParse = vi.fn<(filePath: string) => Promise<TimeSheet>>();
 
 vi.mock("./teamleader-excel/index.js", () => ({
   TeamleaderExcelAdapter: class {
     parse = mockParse;
+  },
+}));
+
+vi.mock("./projektron-bcs-excel/index.js", () => ({
+  ProjektronBcsExcelAdapter: class {
+    parse = mockProjektronParse;
   },
 }));
 
@@ -296,5 +303,124 @@ describe("TimeTrackingClient filtering", () => {
       ticketIds: ["PROJ-999"],
     });
     expect(sheet.entries).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-source / multi-format tests
+// ---------------------------------------------------------------------------
+
+describe("createTimeTrackingClient — multi-source", () => {
+  const baseDir = resolve("data", "__test-multi__", "time-tracking");
+  const tlDir = join(baseDir, "teamleader");
+  const pbDir = join(baseDir, "projektron-bcs");
+
+  beforeEach(async () => {
+    await mkdir(tlDir, { recursive: true });
+    await mkdir(pbDir, { recursive: true });
+    mockParse.mockReset();
+    mockProjektronParse.mockReset();
+  });
+
+  afterEach(async () => {
+    await rm(resolve("data", "__test-multi__"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it("returns a client instance for projektron-bcs-excel", async () => {
+    const client = await createTimeTrackingClient({
+      ticketPrefix: "PROJ",
+      dataFolderName: "__test-multi__",
+      rawFormat: "projektron-bcs-excel",
+    });
+    expect(client).toBeDefined();
+    expect(typeof client.getTimeSheet).toBe("function");
+  });
+
+  it("discovers files in subfolders per source", async () => {
+    await writeFile(join(tlDir, "tl.xlsx"), "");
+    await writeFile(join(pbDir, "pb.xlsx"), "");
+
+    const tlEntry = makeEntry({ rawComment: "TL entry", detectedIds: ["PROJ-1"] });
+    const pbEntry = makeEntry({
+      rawComment: "PB entry",
+      detectedIds: ["PROJ-2"],
+      timestamp: "2025-04-01T00:00:00.000Z",
+    });
+
+    mockParse.mockResolvedValue(
+      makeSheet([tlEntry], { sourceSystem: "teamleader" }),
+    );
+    mockProjektronParse.mockResolvedValue(
+      makeSheet([pbEntry], { sourceSystem: "projektron-bcs" }),
+    );
+
+    const client = await createTimeTrackingClient({
+      ticketPrefix: "PROJ",
+      dataFolderName: "__test-multi__",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet();
+
+    expect(mockParse).toHaveBeenCalledTimes(1);
+    expect(mockProjektronParse).toHaveBeenCalledTimes(1);
+    expect(sheet.entries).toHaveLength(2);
+    expect(sheet.sourceSystem).toBe("teamleader+projektron-bcs");
+  });
+
+  it("merges entries from multiple sources in timestamp order", async () => {
+    await writeFile(join(tlDir, "tl.xlsx"), "");
+    await writeFile(join(pbDir, "pb.xlsx"), "");
+
+    const earlyEntry = makeEntry({
+      timestamp: "2025-01-01T00:00:00.000Z",
+      rawComment: "PB early",
+    });
+    const lateEntry = makeEntry({
+      timestamp: "2025-06-01T00:00:00.000Z",
+      rawComment: "TL late",
+    });
+
+    mockParse.mockResolvedValue(makeSheet([lateEntry]));
+    mockProjektronParse.mockResolvedValue(makeSheet([earlyEntry]));
+
+    const client = await createTimeTrackingClient({
+      ticketPrefix: "PROJ",
+      dataFolderName: "__test-multi__",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet();
+    expect(sheet.entries[0].rawComment).toBe("PB early");
+    expect(sheet.entries[1].rawComment).toBe("TL late");
+  });
+
+  it("handles empty subfolders gracefully", async () => {
+    // teamleader subfolder has files, projektron-bcs is empty
+    await writeFile(join(tlDir, "tl.xlsx"), "");
+
+    mockParse.mockResolvedValue(makeSheet([makeEntry()]));
+
+    const client = await createTimeTrackingClient({
+      ticketPrefix: "PROJ",
+      dataFolderName: "__test-multi__",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet();
+    expect(sheet.entries).toHaveLength(1);
+    expect(mockProjektronParse).not.toHaveBeenCalled();
   });
 });

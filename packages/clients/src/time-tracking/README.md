@@ -4,7 +4,7 @@ Time-tracking client, port interface, schemas, and adapter implementations.
 
 ## Purpose
 
-Provides a high-level `TimeTrackingClient` that abstracts raw format details and file discovery, exposing a clean query API for retrieving filtered time sheets.
+Provides a high-level `TimeTrackingClient` that abstracts raw format details and file discovery, exposing a clean query API for retrieving filtered time sheets. Supports multiple time-tracking sources (formats) in a single client via the `sources` configuration.
 
 ## Contents overview
 
@@ -14,15 +14,26 @@ Provides a high-level `TimeTrackingClient` that abstracts raw format details and
 | `client.ts` | `TimeTrackingClient` interface — high-level query API |
 | `factory.ts` | `createTimeTrackingClient(config)` — factory that resolves adapters and discovers files |
 | `raw-format.schema.ts` | `TimeTrackingRawFormatSchema` — Zod enum of supported raw formats |
-| `client-config.schema.ts` | `TimeTrackingClientConfigSchema` — project-specific configuration for the factory |
+| `client-config.schema.ts` | `TimeTrackingClientConfigSchema` — project-specific configuration (single or multi-source) |
 | `query.schema.ts` | `TimeTrackingQuerySchema` — structured filter criteria (ticket IDs, timeframe) |
 | `index.ts` | Public re-exports for the module |
-| `teamleader-excel.adapter.test.ts` | Tier 2: adapter wired against committed Excel fixture |
-| `time-tracking.boundary.test.ts` | Tier 3: full factory → client, mocked boundary |
-| `time-tracking.realworld.test.ts` | Tier 4: real-data tests using gitignored `data/` exports (skipped in CI) |
 | `teamleader-excel/` | Adapter for Teamleader `.xlsx` exports |
+| `projektron-bcs-excel/` | Adapter for Projektron BCS `.xlsx` invoice exports |
+| `teamleader-excel.adapter.test.ts` | Tier 2: Teamleader adapter against committed fixture |
+| `projektron-bcs-excel.adapter.test.ts` | Tier 2: Projektron BCS adapter against committed fixture |
+| `time-tracking.boundary.test.ts` | Tier 3: full factory → client boundary tests |
+| `time-tracking.realworld.test.ts` | Tier 4: real-data tests using gitignored `data/` exports (skipped in CI) |
+
+## Supported formats
+
+| Format | Adapter | Description |
+|---|---|---|
+| `teamleader-excel` | `TeamleaderExcelAdapter` | Teamleader working-hours Excel export |
+| `projektron-bcs-excel` | `ProjektronBcsExcelAdapter` | Projektron BCS "Nachweis gebuchter Aufwand für Rechnung" invoice export |
 
 ## How to use
+
+### Single format (legacy)
 
 ```typescript
 import { createTimeTrackingClient } from "@isv/clients";
@@ -32,8 +43,25 @@ const client = await createTimeTrackingClient({
   dataFolderName: "superclient",
   rawFormat: "teamleader-excel",
 });
+```
 
-// Full time sheet
+### Multi-source
+
+```typescript
+const client = await createTimeTrackingClient({
+  ticketPrefix: "PROJ",
+  dataFolderName: "superclient",
+  sources: [
+    { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+    { rawFormat: "projektron-bcs-excel", subFolder: "projektron-bcs" },
+  ],
+});
+```
+
+### Querying
+
+```typescript
+// Full time sheet (merged from all sources)
 const all = await client.getTimeSheet();
 
 // Filtered by tickets
@@ -56,7 +84,10 @@ This client has full four-tier test coverage. See [`docs/qa-strategy.md`](../../
 
 | File | Tier | Description |
 |---|---|---|
-| `teamleader-excel/adapter.test.ts` | 1 — Unit | Adapter helper functions (date parsing, ID extraction, attribution) |
-| `teamleader-excel.adapter.test.ts` | 2 — Adapter fixture | Full parse contract against `teamleader-excel/__fixtures__/sample-timesheet.xlsx` |
-| `time-tracking.boundary.test.ts` | 3 — Component boundary | Factory → client wiring, fixture-derived mocks |
-| `time-tracking.realworld.test.ts` | 4 — Realworld | Real Teamleader export, auto-skipped when data absent |
+| `teamleader-excel/adapter.test.ts` | 1 — Unit | Teamleader adapter helpers (date parsing, ID extraction, attribution) |
+| `projektron-bcs-excel/adapter.test.ts` | 1 — Unit | Projektron BCS adapter helpers |
+| `teamleader-excel.adapter.test.ts` | 2 — Adapter fixture | Teamleader parse against `teamleader-excel/__fixtures__/sample-timesheet.xlsx` |
+| `projektron-bcs-excel.adapter.test.ts` | 2 — Adapter fixture | Projektron BCS parse against `projektron-bcs-excel/__fixtures__/sample-timesheet.xlsx` |
+| `factory.test.ts` | 2/3 — Factory | Factory resolution, multi-source discovery, merging, filtering |
+| `time-tracking.boundary.test.ts` | 3 — Component boundary | Factory → client wiring, single and multi-source |
+| `time-tracking.realworld.test.ts` | 4 — Realworld | Real exports (auto-skipped when data absent) |

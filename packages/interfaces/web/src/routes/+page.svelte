@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ProjectEntry, ApiResponse, PipelineStepState, PipelineStepStatus } from '$lib/types/index.js';
+  import type { ProjectEntry, CalibrationReportEntry, ApiResponse, PipelineStepState, PipelineStepStatus } from '$lib/types/index.js';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import TicketInput from '$lib/components/TicketInput.svelte';
   import TicketInfo from '$lib/components/TicketInfo.svelte';
@@ -70,6 +70,9 @@
   let pipelineSteps = $state<PipelineStepState[]>([]);
   let activeEventSource: EventSource | null = null;
 
+  // Calibration reports for the active project
+  let calibrationReports = $state<CalibrationReportEntry[]>([]);
+
   // Session-storage keys for state persistence across HMR / page reloads.
   // In Vite dev mode, any file edit triggers a full page reload, which loses
   // all Svelte $state. We persist the active project selection and detect
@@ -96,6 +99,7 @@
       const storedSlug = sessionStorage.getItem(STORAGE_SLUG);
       if (storedSlug && projects.some(p => p.slug === storedSlug)) {
         activeSlug = storedSlug;
+        fetchCalibrationReports(storedSlug);
       }
 
       // Detect interrupted calculation (HMR reload killed a pending SSE stream)
@@ -121,6 +125,20 @@
     }
   }
 
+  async function fetchCalibrationReports(slug: string) {
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/reports`);
+      const body: ApiResponse<CalibrationReportEntry[]> = await res.json();
+      if (body.success && body.data) {
+        calibrationReports = body.data;
+      } else {
+        calibrationReports = [];
+      }
+    } catch {
+      calibrationReports = [];
+    }
+  }
+
   function selectProject(slug: string) {
     // AC-1.3, AC-1.4: Select project, only one active at a time
     // AC-1.5: Reset panels when switching projects
@@ -134,6 +152,8 @@
     error = null;
     streaming = false;
     pipelineSteps = [];
+    calibrationReports = [];
+    fetchCalibrationReports(slug);
   }
 
   function toggleSidebar() {
@@ -393,7 +413,7 @@
 
       {#if !loading && !error && !isvResult && !ticketData}
         <!-- Initial empty state -->
-        <div class="flex flex-1 items-center justify-center py-20">
+        <div class="flex flex-1 flex-col items-center justify-center py-20">
           <div class="text-center">
             <svg class="mx-auto mb-4 h-16 w-16 text-border" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z" />
@@ -403,6 +423,37 @@
               Enter a ticket number above to start an ISV calculation
             </p>
           </div>
+
+          <!-- Calibration reports for active project -->
+          {#if calibrationReports.length > 0}
+            <div class="mt-10 w-full max-w-lg">
+              <h3 class="mb-3 text-sm font-semibold tracking-wide text-text-secondary uppercase">Calibration Reports</h3>
+              <div class="grid gap-2">
+                {#each calibrationReports as report}
+                  <a
+                    href="/reports/{activeSlug}/{report.slug}"
+                    class="group flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <div class="min-w-0">
+                      <span class="text-sm font-medium text-text group-hover:text-brand">
+                        {report.periodStart} → {report.periodEnd}
+                      </span>
+                      <span class="ml-3 text-xs text-text-secondary">
+                        R² {report.rSquared.toFixed(3)} · {report.sampleSize} samples
+                      </span>
+                    </div>
+                    <span class="ml-3 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium
+                      {report.fitAssessment === 'strong' ? 'bg-green-100 text-green-800' : report.fitAssessment === 'moderate' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}">
+                      {report.fitAssessment}
+                    </span>
+                  </a>
+                {/each}
+              </div>
+              <a href="/reports/{activeSlug}" class="mt-3 inline-block text-xs text-brand hover:underline">
+                View all reports →
+              </a>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

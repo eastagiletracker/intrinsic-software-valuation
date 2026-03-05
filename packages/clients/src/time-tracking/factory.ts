@@ -11,8 +11,12 @@ import type { SourceFileMeta } from "../cache/sqlite-data-store.js";
 
 import { CachedTimeTrackingClient } from "./cached-time-tracking-client.js";
 import type { TimeTrackingClient } from "./client.js";
-import type { TimeTrackingClientConfig } from "./client-config.schema.js";
+import type {
+  TimeTrackingClientConfig,
+  TimeTrackingSource,
+} from "./client-config.schema.js";
 import type { TimeTrackingPort } from "./port.js";
+import { ProjektronBcsExcelAdapter } from "./projektron-bcs-excel/index.js";
 import type { TimeTrackingQuery } from "./query.schema.js";
 import { SqliteTimeTrackingClient } from "./sqlite-time-tracking-client.js";
 import { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
@@ -24,28 +28,79 @@ import { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
 /** File extensions accepted per raw format. */
 const FORMAT_EXTENSIONS: Record<string, string[]> = {
   "teamleader-excel": [".xlsx"],
+  "projektron-bcs-excel": [".xlsx"],
 };
 
 /**
- * Discover matching source files in `data/<dataFolderName>/time-tracking/`.
+ * Discover matching source files in a directory.
  * Only top-level files with the expected extension are returned.
  */
-async function discoverFiles(
-  dataFolderName: string,
+async function discoverFilesInDir(
+  dir: string,
   extensions: string[],
 ): Promise<string[]> {
-  const dir = resolve("data", dataFolderName, "time-tracking");
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch {
-    // Directory does not exist → no files
     return [];
   }
   return entries
     .filter((f) => extensions.some((ext) => f.endsWith(ext)))
     .sort()
     .map((f) => join(dir, f));
+}
+
+/**
+ * Discover files for a legacy single-format config.
+ * Looks in `data/<dataFolderName>/time-tracking/`.
+ */
+async function discoverFiles(
+  dataFolderName: string,
+  extensions: string[],
+): Promise<string[]> {
+  const dir = resolve("data", dataFolderName, "time-tracking");
+  return discoverFilesInDir(dir, extensions);
+}
+
+/**
+ * Discover files for a source with a subfolder.
+ * Looks in `data/<dataFolderName>/time-tracking/<subFolder>/`.
+ */
+async function discoverFilesForSource(
+  dataFolderName: string,
+  source: TimeTrackingSource,
+): Promise<string[]> {
+  const extensions = FORMAT_EXTENSIONS[source.rawFormat] ?? [];
+  const dir = resolve(
+    "data",
+    dataFolderName,
+    "time-tracking",
+    source.subFolder,
+  );
+  return discoverFilesInDir(dir, extensions);
+}
+
+/**
+ * Discover all source files across all configured sources.
+ */
+async function discoverAllSourceFiles(
+  config: TimeTrackingClientConfig,
+): Promise<string[]> {
+  if (config.sources) {
+    const all: string[] = [];
+    for (const source of config.sources) {
+      const files = await discoverFilesForSource(
+        config.dataFolderName,
+        source,
+      );
+      all.push(...files);
+    }
+    return all;
+  }
+  // Legacy single-format
+  const extensions = FORMAT_EXTENSIONS[config.rawFormat!] ?? [];
+  return discoverFiles(config.dataFolderName, extensions);
 }
 
 // ---------------------------------------------------------------------------
@@ -56,10 +111,12 @@ function resolveAdapter(rawFormat: string): TimeTrackingPort {
   switch (rawFormat) {
     case "teamleader-excel":
       return new TeamleaderExcelAdapter();
+    case "projektron-bcs-excel":
+      return new ProjektronBcsExcelAdapter();
     default:
       throw new Error(
         `Unknown time-tracking raw format: "${rawFormat}". ` +
-          'Supported formats: "teamleader-excel".',
+          'Supported formats: "teamleader-excel", "projektron-bcs-excel".',
       );
   }
 }
@@ -122,7 +179,9 @@ function mergeTimeSheets(sheets: TimeSheet[]): TimeSheet {
     );
 
   const rawEntryCount = sheets.reduce((sum, s) => sum + s.rawEntryCount, 0);
-  const sourceSystem = sheets[0].sourceSystem;
+  const sourceSystems = [...new Set(sheets.map((s) => s.sourceSystem))];
+  const sourceSystem =
+    sourceSystems.length === 1 ? sourceSystems[0] : sourceSystems.join("+");
 
   const timestamps = allEntries.map((e) => new Date(e.timestamp).getTime());
   const periodStart =
@@ -150,22 +209,34 @@ function mergeTimeSheets(sheets: TimeSheet[]): TimeSheet {
 /**
  * Default implementation of `TimeTrackingClient`.
  *
- * Parses all discovered source files via the resolved adapter, merges
+ * Parses all discovered source files via the resolved adapter(s), merges
  * entries into a single `TimeSheet`, and applies query filters on demand.
+ *
+ * Supports both single-adapter mode (legacy) and multi-adapter mode
+ * where each file group has its own adapter.
  */
 class DefaultTimeTrackingClient implements TimeTrackingClient {
-  private readonly adapter: TimeTrackingPort;
-  private readonly files: string[];
+  private readonly fileGroups: Array<{
+    adapter: TimeTrackingPort;
+    files: string[];
+  }>;
   private readonly ticketPrefix: string;
 
-  constructor(adapter: TimeTrackingPort, files: string[], ticketPrefix: string) {
-    this.adapter = adapter;
-    this.files = files;
+  constructor(
+    fileGroups: Array<{ adapter: TimeTrackingPort; files: string[] }>,
+    ticketPrefix: string,
+  ) {
+    this.fileGroups = fileGroups;
     this.ticketPrefix = ticketPrefix;
   }
 
   async getTimeSheet(query?: TimeTrackingQuery): Promise<TimeSheet> {
-    if (this.files.length === 0) {
+    const totalFiles = this.fileGroups.reduce(
+      (sum, g) => sum + g.files.length,
+      0,
+    );
+
+    if (totalFiles === 0) {
       const now = new Date().toISOString();
       return {
         periodStart: now,
@@ -176,11 +247,13 @@ class DefaultTimeTrackingClient implements TimeTrackingClient {
       };
     }
 
-    const sheets = await Promise.all(
-      this.files.map((f) => this.adapter.parse(f)),
+    const allSheets = await Promise.all(
+      this.fileGroups.flatMap((group) =>
+        group.files.map((f) => group.adapter.parse(f)),
+      ),
     );
 
-    const merged = mergeTimeSheets(sheets);
+    const merged = mergeTimeSheets(allSheets);
     const filtered = filterEntries(merged.entries, query, this.ticketPrefix);
 
     if (filtered.length === 0) {
@@ -210,14 +283,15 @@ class DefaultTimeTrackingClient implements TimeTrackingClient {
 /**
  * Create a ready-to-use `TimeTrackingClient` from project-specific config.
  *
- * The factory resolves the correct adapter based on `rawFormat`, discovers
- * source files inside `data/<dataFolderName>/time-tracking/`, and returns
- * a client instance that can be queried with structured filter criteria.
+ * The factory resolves the correct adapter(s) based on `rawFormat` or
+ * `sources`, discovers source files inside `data/<dataFolderName>/time-tracking/`
+ * (and optional subfolders), and returns a client instance that can be
+ * queried with structured filter criteria.
  *
  * When a pre-warmed SQLite database exists at `data/<dataFolderName>/project.db`,
  * the factory returns a `SqliteTimeTrackingClient` for fast indexed queries.
  *
- * @param config - Project-specific configuration (ticket prefix, data folder, raw format).
+ * @param config - Project-specific configuration (ticket prefix, data folder, raw format or sources).
  * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `Promise` resolving to an initialised `TimeTrackingClient`.
  */
@@ -235,10 +309,9 @@ export async function createTimeTrackingClient(
 
       if (warmupAt) {
         // Collect source file metadata for staleness check
-        const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
-        const files = await discoverFiles(config.dataFolderName, extensions);
+        const allFiles = await discoverAllSourceFiles(config);
         const sourceFiles: SourceFileMeta[] = [];
-        for (const f of files) {
+        for (const f of allFiles) {
           try {
             const s = await stat(f);
             sourceFiles.push({
@@ -265,12 +338,28 @@ export async function createTimeTrackingClient(
     "Using file-based adapter (no SQLite database found)",
   );
 
-  const adapter = resolveAdapter(config.rawFormat);
-  const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
-  const files = await discoverFiles(config.dataFolderName, extensions);
+  // Build file groups — one per adapter
+  const fileGroups: Array<{ adapter: TimeTrackingPort; files: string[] }> = [];
+
+  if (config.sources) {
+    for (const source of config.sources) {
+      const adapter = resolveAdapter(source.rawFormat);
+      const files = await discoverFilesForSource(
+        config.dataFolderName,
+        source,
+      );
+      fileGroups.push({ adapter, files });
+    }
+  } else {
+    // Legacy single-format mode
+    const adapter = resolveAdapter(config.rawFormat!);
+    const extensions = FORMAT_EXTENSIONS[config.rawFormat!] ?? [];
+    const files = await discoverFiles(config.dataFolderName, extensions);
+    fileGroups.push({ adapter, files });
+  }
+
   const client: TimeTrackingClient = new DefaultTimeTrackingClient(
-    adapter,
-    files,
+    fileGroups,
     config.ticketPrefix,
   );
 
