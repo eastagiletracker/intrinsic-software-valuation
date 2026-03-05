@@ -12,3 +12,7 @@ export type {
   CalibrationProgressEvent,
   CalibrationProgressCallback,
 } from "./progress.js";
+export {
+  createHistoricalCalibrationFromConfig,
+  type CalibrationConfigFactoryResult,
+} from "./config-factory.js";
