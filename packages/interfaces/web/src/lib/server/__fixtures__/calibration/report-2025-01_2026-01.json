@@ -1,0 +1,96 @@
+{
+  "result": {
+    "formulaVersion": "3.4",
+    "shipRateHoursPerIsv": 4.2,
+    "shipRateExclOutliers": 3.9,
+    "rSquared": 0.78,
+    "adjustedRSquared": 0.75,
+    "dataQualityScore": 0.92,
+    "sampleSize": 18,
+    "periodStart": "2025-01",
+    "periodEnd": "2026-01",
+    "factorDiagnostics": [
+      {
+        "feature": "A1_Data",
+        "partialCorrelation": 0.45,
+        "weight": 1.1,
+        "pValue": 0.02
+      }
+    ],
+    "reliability": {
+      "sampleSize": 18,
+      "effectiveSampleSize": 17,
+      "standardError": 0.42,
+      "confidenceInterval95": { "lower": 3.3, "upper": 5.1 },
+      "coefficientOfVariation": 0.1,
+      "dataQualityScore": 0.92,
+      "normalityFlag": "pass"
+    },
+    "outliers": { "outlierCount": 0, "outlierPercentage": 0, "entries": [] },
+    "normalityAssessment": {
+      "testName": "shapiro-wilk",
+      "testStatistic": 0.96,
+      "pValue": 0.7,
+      "skewness": 0.05,
+      "kurtosis": -0.1,
+      "flag": "pass"
+    },
+    "formulaValidation": {
+      "fitAssessment": "strong",
+      "shipRateReliability": "Ship Rate is reliable",
+      "dataQualityAssessment": "Data quality is good",
+      "factorRanking": [
+        { "feature": "A1_Data", "absPartialCorrelation": 0.45, "isSignificant": true }
+      ],
+      "mismatches": {
+        "multiplicativeFactorsWithLowWeight": [],
+        "additiveFactorsWithDominantWeight": [],
+        "gitMetricsOutperformingIsv": false
+      },
+      "recommendations": []
+    }
+  },
+  "clusters": [
+    {
+      "clusterId": "PROJ-10",
+      "ids": ["PROJ-10"],
+      "metadata": { "type": "Story", "timestampT0": "2025-03-01T00:00:00.000Z" },
+      "isvAnalysis": {
+        "formulaVersion": "3.4",
+        "isvScore": 5,
+        "confidence": 0.88,
+        "factors": {
+          "A1_Data": 2,
+          "A2_UX": 1,
+          "B1_Logic": 2,
+          "C1_Integration": 1,
+          "C2_State": 1,
+          "D3_Quality": 1
+        },
+        "breakdown": { "poValue": 5, "archFactor": 1, "qualityMultiplier": 1 }
+      },
+      "metrics": {
+        "totalHours": 20,
+        "gitChanges": {
+          "locAdded": 150,
+          "locDeleted": 30,
+          "filesChanged": 8,
+          "distributionEntropy": 0.6,
+          "cyclomaticComplexityDelta": 3,
+          "changeIntensityScore": 0.4
+        }
+      }
+    }
+  ],
+  "residuals": [
+    {
+      "clusterId": "PROJ-10",
+      "actualHours": 20,
+      "predictedHours": 21,
+      "residual": -1,
+      "standardizedResidual": -0.2,
+      "isOutlier": false
+    }
+  ],
+  "skippedClusters": []
+}
