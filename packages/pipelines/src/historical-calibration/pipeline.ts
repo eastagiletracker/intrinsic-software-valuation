@@ -210,6 +210,7 @@ class HistoricalCalibrationPipeline
     try {
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
+        legacyDailyRate: 1000,
       };
       const minConfidence = config.minConfidence ?? 0.7;
 

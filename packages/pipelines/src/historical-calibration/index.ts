@@ -16,3 +16,4 @@ export {
   createHistoricalCalibrationFromConfig,
   type CalibrationConfigFactoryResult,
 } from "./config-factory.js";
+export { writeCalibrationReport, reportFilename } from "./report-writer.js";

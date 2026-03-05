@@ -29,6 +29,7 @@ import type {
 import {
   createIsvCalculationFromConfig,
   createHistoricalCalibrationFromConfig,
+  writeCalibrationReport,
   SqliteRunStore,
 } from "@isv/pipelines";
 
@@ -645,6 +646,16 @@ async function runCalibrate(args: string[]): Promise<void> {
     if (!result.success) {
       console.error(`\nCalibration failed: ${result.error.message}`);
       process.exit(sigintReceived ? 130 : 1);
+    }
+
+    // Persist report as JSON file under data/<projectSlug>/calibration/
+    const reportPath = await writeCalibrationReport(
+      result.data,
+      projectSlug,
+      cwd,
+    );
+    if (!jsonOnly) {
+      console.error(`Report written to ${reportPath}`);
     }
 
     // Print CalibrationRunOutput to stdout as pretty-printed JSON

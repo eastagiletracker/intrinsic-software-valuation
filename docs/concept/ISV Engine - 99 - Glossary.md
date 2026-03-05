@@ -19,7 +19,7 @@ This glossary provides an alphabetical overview of key terms and components used
 - Gap Analyzer: AI component that compares new requirements with current capabilities to identify structural gaps.
 - Intrinsic Software Value (ISV): Objective, dimensionless number for structural size and complexity of a requirement.
 - Knowledge-Based Value (KBV): Time booked for activities without direct code changes, such as meetings, admin, or research.
-- Ship Rate: Empirical conversion rate from ISV points to hours or costs.
+- Ship Rate: Empirical conversion rate from ISV points to Euro (€), derived via a legacy daily rate from the hours-based calibration regression.
 - Ship Unit Cluster: Logical grouping of related tasks (for example story plus subtasks) evaluated as one unit.
 - system_context.json: File produced by the Fact Finder that captures current system capabilities and patterns.
 - Valuation Engine: Component that applies the ISV formula to generate final score.
