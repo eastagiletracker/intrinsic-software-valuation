@@ -6,11 +6,23 @@ After the ISV Engine calculates structural complexity as an abstract ISV value, 
 
 The goal is to determine the Ship Rate: a stable conversion between ISV points and actual invested time. Monetary valuation in Euros remains a separate, decoupled step.
 
-Calibration also serves as an **empirical confidence check** for the static ISV formula. By preserving full factor-level detail for every calibrated cluster, the system can optionally surface statistical diagnostics that reveal whether the formula's factor weights and structure are realistic relative to actual invested effort. The formula itself is never adjusted automatically — diagnostics inform deliberate, human-decided revisions (see Formula Versioning in [ISV Engine - 02 - Valuation](ISV%20Engine%20-%2002%20-%20Valuation.md)).
+Calibration also serves as an **empirical confidence check** for the static ISV formula. By preserving full factor-level detail for every calibrated cluster, the system surfaces statistical diagnostics that reveal whether the formula's factor weights and structure are realistic relative to actual invested effort. The formula itself is never adjusted automatically — diagnostics inform deliberate, human-decided revisions (see Formula Versioning in [ISV Engine - 02 - Valuation](ISV%20Engine%20-%2002%20-%20Valuation.md)).
+
+## Calibration Scope
+
+Every calibration run is scoped to a **named project** and a **calendar window**.
+
+- **Project**: Identified by a `data/<project>/project-config.json` entry. Determines which Jira project key, Git repositories, and time-tracking source files are included.
+- **Timeframe**: Start month and end month (inclusive). Default is the previous 18 months. The user can override this to any arbitrary range (e.g. `2025-10` to `2026-02`).
+- Only tickets whose resolution date (or, if unresolved, creation date) falls within the window are included.
+- Only time entries whose booking timestamp falls within the window are included.
+- Git checkouts use the per-cluster `T0` timestamp regardless of the window; the window filters which clusters enter the sample.
+
+The pipeline configuration therefore requires at minimum: `projectSlug`, `periodStart`, `periodEnd`.
 
 ## Input Data (Triangulation)
 
-Calibration uses three data streams from the previous 18 months.
+Calibration uses three data streams scoped to the configured project and timeframe.
 
 ### Jira Ticket and Ticket Clustering (Target State)
 
@@ -100,9 +112,9 @@ Generated object per story or task after aggregation. The `isvAnalysis` block ca
 }
 ```
 
-## Factor-Level Diagnostics (Advanced, Optional)
+## Factor-Level Diagnostics
 
-Because each `ShipUnitCluster` now carries the full factor composition, calibration can optionally produce **factor-level diagnostics** in addition to the scalar Ship Rate. These diagnostics validate the static formula against empirical data without modifying it.
+Because each `ShipUnitCluster` carries the full factor composition, calibration produces **factor-level diagnostics** alongside the scalar Ship Rate. These diagnostics validate the static formula against empirical data without modifying it. They are a mandatory output of every calibration run.
 
 Diagnostics are computed per factor across all clusters in the calibration sample:
 
@@ -137,14 +149,86 @@ Diagnostics output is an array of per-factor entries:
 - A factor with consistently negligible partial correlation across multiple calibration runs may warrant review of its scale definitions.
 - A factor with unexpectedly high weight relative to its ISV formula position (additive vs. multiplicative) may indicate the formula structure under- or overweights that dimension.
 - Any formula change resulting from diagnostics constitutes a new formula version (see [ISV Engine - 02 - Valuation](ISV%20Engine%20-%2002%20-%20Valuation.md), Formula Versioning).
+- Factor diagnostics are always computed and included in the calibration output. They are not optional.
+
+## Distribution Analysis and Reliability Transparency
+
+A scalar Ship Rate and R² alone are insufficient to earn trust in the calibration. The system must make the **shape and quality** of the underlying data visible.
+
+### Per-Cluster Residuals
+
+For every `ShipUnitCluster` in the sample, the calibration stores the **residual** (actual hours minus predicted hours from the regression model). This enables:
+
+- Identification of clusters where ISV dramatically over- or under-predicts effort.
+- Drill-down into outlier clusters to understand why the model fails (e.g. knowledge work, unusual code patterns, poor time attribution).
+
+### Normality Assessment (Normalverteilung)
+
+The distribution of residuals is tested for approximate normality. A well-fitting linear model should produce residuals that are roughly normally distributed around zero.
+
+- **Shapiro-Wilk test** (for samples < 50) or **Kolmogorov-Smirnov test** (for larger samples): reports test statistic and p-value.
+- **Skewness and kurtosis** of the residual distribution.
+- If residuals are significantly non-normal ($p < 0.05$), the calibration flags this and reports possible causes (e.g. heavy-tailed distribution from a few extreme clusters).
+
+### Outlier Detection
+
+Clusters with |standardized residual| > 2 are flagged as **statistical outliers**. The calibration reports:
+
+- Number and percentage of outlier clusters.
+- The outlier cluster IDs with their residual values and a human-readable reason label (e.g. `HIGH_KBV_RATIO`, `ZERO_GIT_CHANGES`, `EXTREME_HOURS`).
+- Ship Rate is reported **both with and without outliers** so that the impact of extreme data points is transparent.
+
+### Confidence and Reliability Summary
+
+The calibration output includes a structured reliability block:
+
+- **Sample size** and **effective sample size** (after outlier exclusion).
+- **Standard error** of the Ship Rate estimate.
+- **95% confidence interval** for the Ship Rate.
+- **Coefficient of variation** ($\frac{\sigma}{\mu}$) of hours-per-ISV across clusters — lower is more stable.
+- **DQS** (Data Quality Score) for the period.
+- **Normality flag**: pass / warning / fail based on the residual distribution test.
+
+This block is designed so that a reviewer can quickly assess: "How much can I trust this Ship Rate?"
+
+## Formula Validation
+
+Beyond the Ship Rate, calibration answers the question: **Does the ISV formula structure match real-world effort patterns?**
+
+### Validity Statements
+
+The calibration output includes structured natural-language statements derived from the statistical results:
+
+- **Overall fit**: "The ISV formula explains X% of variance in actual hours (R² = 0.XX). This is [strong / moderate / weak] evidence that the model captures real effort drivers."
+- **Ship Rate reliability**: "The Ship Rate of Y hours/ISV has a 95% confidence interval of [A, B]. The coefficient of variation is Z%, indicating [high / moderate / low] stability."
+- **Data quality**: "DQS is X%. Y% of total hours could be attributed to specific clusters; Z% are KBV; W% remain unlinked overhead."
+
+### Factor Correlation Ranking
+
+Using the mandatory factor-level diagnostics (partial correlation, $\beta$-weight, p-value), the output ranks all factors by their empirical predictive power:
+
+- **Ranking table**: Factors sorted by |partial correlation| descending, with significance flag ($p < 0.05$ = significant, $p < 0.01$ = highly significant).
+- **Formula-vs-reality comparison**: For each factor, compare its position in the ISV formula (additive component A/B vs. multiplicative component C/D) against its empirical weight. Flag mismatches where a multiplicative factor has low empirical significance, or an additive factor dominates.
+- **Composite regression features**: In addition to the six ISV factors, the regression includes Git change metrics (distribution entropy, complexity delta, change intensity) as features. If a Git metric has higher partial correlation than an ISV factor, this is flagged for review.
+
+### Recommendations Block
+
+- Factors with $p > 0.10$ across multiple calibration runs: "Factor X shows no statistically significant correlation with effort. Consider reviewing its scale definitions."
+- Factors with unexpectedly high $\beta$: "Factor Y explains more variance than its formula position suggests. The formula may underweight this dimension."
+- Any formula change resulting from these insights constitutes a new formula version (see [ISV Engine - 02 - Valuation](ISV%20Engine%20-%2002%20-%20Valuation.md), Formula Versioning).
 
 ## Calibration Workflow (Implementation Path)
 
-1. Cluster-centric ingest based on ticket lifecycle.
-2. Triple matching: baseline checkout, ISV run, and Git analysis.
-3. Reconciliation and overhead allocation.
-4. Statistical calibration and `shipRateHoursPerIsv` calculation.
-5. *(Optional)* Factor-level diagnostics: multivariate regression on per-factor data across all clusters.
+1. Scope resolution: load project config, resolve timeframe, filter tickets and time entries.
+2. Cluster-centric ingest based on ticket lifecycle.
+3. Triple matching: baseline checkout, ISV run, and Git analysis.
+4. Reconciliation and overhead allocation.
+5. Statistical calibration and `shipRateHoursPerIsv` calculation.
+6. Per-cluster residual computation and outlier detection.
+7. Distribution analysis: normality test, skewness, kurtosis.
+8. Factor-level diagnostics: multivariate regression on per-factor data across all clusters.
+9. Formula validation: validity statements, factor ranking, recommendations.
+10. Reliability summary: confidence interval, standard error, coefficient of variation.
 
 ## Data Standard and Parsing Logic for Time Tracking
 
