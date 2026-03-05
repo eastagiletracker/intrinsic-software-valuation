@@ -21,6 +21,8 @@ export type ClusterStatus =
 
 /** Serialised configuration stored alongside the run. */
 export interface RunConfig {
+  /** Optional run ID. When provided, the store uses this ID instead of generating one. */
+  runId?: string;
   projectSlug?: string;
   periodStart?: string;
   periodEnd?: string;

@@ -113,7 +113,7 @@ export class SqliteRunStore implements RunStore {
   // -----------------------------------------------------------------------
 
   createRun(config: RunConfig): RunRecord {
-    const runId = generateRunId();
+    const runId = config.runId ?? generateRunId();
     const ts = now();
     const projectSlug = config.projectSlug ?? "default";
 
@@ -157,7 +157,7 @@ export class SqliteRunStore implements RunStore {
 
   listRuns(): RunRecord[] {
     const rows = this.db
-      .prepare("SELECT * FROM runs ORDER BY created_at DESC")
+      .prepare("SELECT * FROM runs ORDER BY created_at DESC, rowid DESC")
       .all();
     return rows.map((r) => this.toRunRecord(r));
   }

@@ -1,3 +1,5 @@
+import PQueue from "p-queue";
+
 import type {
   CalibrationRunOutput,
   ClusterResidual,
@@ -5,6 +7,7 @@ import type {
   ShipUnitCluster,
   IsvFactors,
   ProjectConfig,
+  Ticket,
 } from "@isv/domain";
 import type {
   TicketClient,
@@ -34,6 +37,8 @@ import {
   CheckpointWriter,
   CheckpointReader,
 } from "../shared/checkpoint.js";
+import { createLlmGate, type LlmGate } from "../shared/llm-semaphore.js";
+import type { RunStore } from "../shared/run-store.port.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -161,6 +166,7 @@ class HistoricalCalibrationPipeline
     private readonly gapAnalyzer: GapAnalyzerPort,
     private readonly valuation: ValuationPort,
     private readonly calibration: CalibrationPort,
+    private readonly runStore?: RunStore,
   ) {}
 
   async run(
@@ -181,6 +187,26 @@ class HistoricalCalibrationPipeline
     const checkpointPath = resolveCheckpointPath(config.projectSlug, runId);
     const checkpointWriter = new CheckpointWriter(checkpointPath);
 
+    // RunStore setup
+    const store = this.runStore;
+    if (store) {
+      const existingRun = store.getRun(runId);
+      if (!existingRun) {
+        store.createRun({
+          runId,
+          projectSlug: config.projectSlug,
+          periodStart: config.periodStart,
+          periodEnd: config.periodEnd,
+          concurrency: config.concurrency,
+          llmConcurrency: config.llmConcurrency,
+        });
+      }
+      store.updateRunStatus(runId, "running");
+    }
+
+    // LLM semaphore
+    const llmGate = createLlmGate(config.llmConcurrency ?? 2);
+
     try {
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
@@ -196,10 +222,14 @@ class HistoricalCalibrationPipeline
         mode: "all",
         timeframe: { start: period.start, end: period.end },
       });
-      if (!ticketResult.success) return ticketResult;
+      if (!ticketResult.success) {
+        if (store) store.updateRunStatus(runId, "failed");
+        return ticketResult;
+      }
       const tickets = ticketResult.data;
 
       if (tickets.length === 0) {
+        if (store) store.updateRunStatus(runId, "failed");
         return {
           success: false,
           error: {
@@ -236,309 +266,230 @@ class HistoricalCalibrationPipeline
       const shipUnitClusters: ShipUnitCluster[] = [];
       const skippedClusters: Array<{ clusterId: string; reason: string }> = [];
 
-      // Load checkpoint for resume
+      // Load checkpoint for resume (JSONL as secondary; RunStore as primary when available)
       const checkpoint = await CheckpointReader.load(checkpointPath);
 
       const clusterEntries = [...ticketClusters];
       const totalClusters = clusterEntries.length;
-      let clusterIndex = 0;
 
-      for (const [clusterId, clusterTickets] of clusterEntries) {
-        clusterIndex++;
+      // Register clusters in RunStore
+      if (store) {
+        store.createClusters(
+          runId,
+          clusterEntries.map(([id]) => id),
+        );
+      }
 
-        // Check if already in checkpoint (resume)
-        const existingEntry = checkpoint.get(clusterId);
-        if (existingEntry) {
-          if (existingEntry.skipped) {
-            skippedClusters.push({
-              clusterId,
-              reason: existingEntry.reason ?? "Previously skipped",
-            });
-            emit({
-              phase: "processing-cluster",
-              current: clusterIndex,
-              total: totalClusters,
-              clusterId,
-              status: "skipped",
-              detail: "Restored from checkpoint (skipped)",
-            });
-          } else if (existingEntry.data) {
-            shipUnitClusters.push(existingEntry.data);
-            emit({
-              phase: "processing-cluster",
-              current: clusterIndex,
-              total: totalClusters,
-              clusterId,
-              status: "restored",
-              detail: "Restored from checkpoint",
-            });
-          }
-          continue;
-        }
+      // --- Concurrent processing via PQueue ---
+      const concurrency = config.concurrency ?? 3;
+      const taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
 
-        emit({
-          phase: "processing-cluster",
-          current: clusterIndex,
-          total: totalClusters,
-          clusterId,
-          status: "processing",
-        });
+      const queue = new PQueue({
+        concurrency,
+        timeout: taskTimeoutMs,
+      });
 
-        try {
-          const primaryTicket = clusterTickets[0];
-          // T0 derivation: use ticket creation date as proxy
-          const timestampT0 = primaryTicket.createdAt;
+      // SIGINT handling: pause queue, let in-flight tasks finish
+      let sigintReceived = false;
+      const sigintHandler = () => {
+        sigintReceived = true;
+        queue.pause();
+      };
+      process.on("SIGINT", sigintHandler);
 
-          // Checkout repos at T0 — retryable (external I/O)
-          const trees = await retryAsync(
-            () => this.gitClient.checkoutAll(timestampT0),
-          );
+      // Track cluster index for progress (atomic counter)
+      let completedCount = 0;
 
-          // Collect trees for per-cluster release
-          const checkedOutTrees: WorkingTree[] = [];
+      const clusterTasks = clusterEntries.map(
+        ([clusterId, clusterTickets]) => {
+          return queue.add(async () => {
+            // If SIGINT was received, skip remaining clusters
+            if (sigintReceived) return;
 
-          try {
-            const repoIds = this.gitClient.repositoryIds();
-            const workingTrees = repoIds
-              .filter((id: string) => trees.has(id))
-              .map((id: string) => trees.get(id)!);
-
-            // Track trees for cleanup
-            checkedOutTrees.push(...workingTrees);
-
-            if (workingTrees.length === 0) {
-              const reason = "No working trees available for checkout";
-              skippedClusters.push({ clusterId, reason });
-              await checkpointWriter.appendSkipped(clusterId, reason);
-              emit({
-                phase: "processing-cluster",
-                current: clusterIndex,
-                total: totalClusters,
-                clusterId,
-                status: "skipped",
-                detail: reason,
-              });
-              continue;
-            }
-
-            // Status Quo Miner
-            const mineResult = await this.statusQuoMiner.mine(
-              workingTrees,
-              timestampT0,
-            );
-            if (!mineResult.success) {
-              const reason = `Status Quo Miner failed: ${mineResult.error.message}`;
-              skippedClusters.push({ clusterId, reason });
-              await checkpointWriter.appendSkipped(clusterId, reason);
-              emit({
-                phase: "processing-cluster",
-                current: clusterIndex,
-                total: totalClusters,
-                clusterId,
-                status: "skipped",
-                detail: reason,
-              });
-              continue;
-            }
-
-            // Architecture Scanner (first repo) — retryable (LLM I/O)
-            const scanResult = await retryAsync(
-              () =>
-                this.architectureScanner.scan(
-                  workingTrees[0].workingDir,
-                  this.llmClient,
-                ),
-            );
-            if (!scanResult.success) {
-              const reason = `Architecture Scanner failed: ${scanResult.error.message}`;
-              skippedClusters.push({ clusterId, reason });
-              await checkpointWriter.appendSkipped(clusterId, reason);
-              emit({
-                phase: "processing-cluster",
-                current: clusterIndex,
-                total: totalClusters,
-                clusterId,
-                status: "skipped",
-                detail: reason,
-              });
-              continue;
-            }
-
-            // Derive C2
-            const c2 = this.valuation.deriveC2(
-              mineResult.data[0].healthScores,
-            );
-
-            // Assemble SystemBaseline
-            const systemBaseline = {
-              timestamp: timestampT0,
-              repositories: mineResult.data.map((report) => ({
-                systemContext: scanResult.data,
-                codeHealthReport: report,
-                c2State: c2,
-              })),
-              effectiveC2: c2,
-            };
-
-            // Gap Analyzer — retryable (LLM I/O)
-            const gapResult = await retryAsync(
-              () =>
-                this.gapAnalyzer.analyze(
-                  systemBaseline,
-                  primaryTicket,
-                  projectConfig,
-                  this.llmClient,
-                ),
-            );
-            if (!gapResult.success) {
-              const reason = `Gap Analyzer failed: ${gapResult.error.message}`;
-              skippedClusters.push({ clusterId, reason });
-              await checkpointWriter.appendSkipped(clusterId, reason);
-              emit({
-                phase: "processing-cluster",
-                current: clusterIndex,
-                total: totalClusters,
-                clusterId,
-                status: "skipped",
-                detail: reason,
-              });
-              continue;
-            }
-
-            // Confidence gate
-            if (gapResult.data.meta.confidenceScore < minConfidence) {
-              const reason = `Low confidence: ${gapResult.data.meta.confidenceScore} < ${minConfidence}`;
-              skippedClusters.push({ clusterId, reason });
-              await checkpointWriter.appendSkipped(clusterId, reason);
-              emit({
-                phase: "processing-cluster",
-                current: clusterIndex,
-                total: totalClusters,
-                clusterId,
-                status: "skipped",
-                detail: reason,
-              });
-              continue;
-            }
-
-            // Assemble IsvFactors
-            const scoring = gapResult.data.isvScoring;
-            const factors: IsvFactors = {
-              A1_Data: scoring.A1_Data.score,
-              A2_UX: scoring.A2_UX.score,
-              B1_Logic: scoring.B1_Logic.score,
-              C1_Integration: scoring.C1_Integration.score,
-              C2_State: c2,
-              D3_Quality: scoring.D3_Quality.score,
-            };
-
-            // Valuation (pure computation — not retried)
-            const isvResult = this.valuation.calculate(clusterId, factors);
-
-            // Calculate time for this cluster
-            const clusterHours = attributed
-              .filter((a) => a.attributedClusterId === clusterId)
-              .reduce((sum, a) => sum + a.attributedHours, 0);
-
-            // Git changes aggregation
-            let locAdded = 0;
-            let locDeleted = 0;
-            let filesChanged = 0;
-            let allHotspots: Array<{
-              file: string;
-              changeCount: number;
-            }> = [];
-            for (const tree of workingTrees) {
-              try {
-                const stats = await this.gitClient.logStats(
-                  tree.repositoryId,
-                  { since: timestampT0 },
-                );
-                locAdded += stats.linesAdded;
-                locDeleted += stats.linesDeleted;
-                filesChanged += stats.filesChanged;
-                if (stats.hotspots) {
-                  allHotspots = allHotspots.concat(stats.hotspots);
+            // Check RunStore for resume first, then fall back to JSONL checkpoint
+            if (store) {
+              const existing = store.getCluster(runId, clusterId);
+              if (existing && existing.status === "done" && existing.data) {
+                shipUnitClusters.push(existing.data);
+                completedCount++;
+                emit({
+                  phase: "processing-cluster",
+                  current: completedCount,
+                  total: totalClusters,
+                  clusterId,
+                  status: "restored",
+                  detail: "Restored from store",
+                });
+                return;
+              }
+              if (
+                existing &&
+                (existing.status === "failed" || existing.status === "skipped")
+              ) {
+                skippedClusters.push({
+                  clusterId,
+                  reason: existing.error ?? "Previously failed/skipped",
+                });
+                completedCount++;
+                emit({
+                  phase: "processing-cluster",
+                  current: completedCount,
+                  total: totalClusters,
+                  clusterId,
+                  status: "skipped",
+                  detail: "Restored from store (skipped)",
+                });
+                return;
+              }
+            } else {
+              // Fall back to JSONL checkpoint
+              const existingEntry = checkpoint.get(clusterId);
+              if (existingEntry) {
+                if (existingEntry.skipped) {
+                  skippedClusters.push({
+                    clusterId,
+                    reason: existingEntry.reason ?? "Previously skipped",
+                  });
+                } else if (existingEntry.data) {
+                  shipUnitClusters.push(existingEntry.data);
                 }
-              } catch {
-                // skip on failure
+                completedCount++;
+                emit({
+                  phase: "processing-cluster",
+                  current: completedCount,
+                  total: totalClusters,
+                  clusterId,
+                  status: existingEntry.skipped ? "skipped" : "restored",
+                  detail: existingEntry.skipped
+                    ? "Restored from checkpoint (skipped)"
+                    : "Restored from checkpoint",
+                });
+                return;
               }
             }
 
-            // Compute Git change metrics
-            const distributionEntropy =
-              computeDistributionEntropy(allHotspots);
-            const cyclomaticComplexityDelta = Math.round(
-              (locAdded - locDeleted) * 0.05,
-            );
-            const intensityScore = computeChangeIntensityScore(
-              locAdded + locDeleted,
-              distributionEntropy,
-              cyclomaticComplexityDelta,
-            );
-
-            const shipUnit: ShipUnitCluster = {
-              clusterId,
-              ids: clusterTickets.map((t) => t.ticketId),
-              metadata: {
-                type: primaryTicket.type,
-                storyPoints: primaryTicket.storyPoints,
-                timestampT0,
-              },
-              isvAnalysis: {
-                formulaVersion: isvResult.formulaVersion,
-                isvScore: isvResult.isvScore,
-                confidence: gapResult.data.meta.confidenceScore,
-                factors: isvResult.factors,
-                breakdown: isvResult.breakdown,
-              },
-              metrics: {
-                totalHours: clusterHours,
-                gitChanges: {
-                  locAdded,
-                  locDeleted,
-                  filesChanged,
-                  distributionEntropy,
-                  cyclomaticComplexityDelta,
-                  changeIntensityScore: intensityScore,
-                },
-              },
-            };
-
-            shipUnitClusters.push(shipUnit);
-            await checkpointWriter.append(clusterId, shipUnit);
+            // Mark cluster as running in store
+            if (store) store.updateCluster(runId, clusterId, "running");
 
             emit({
               phase: "processing-cluster",
-              current: clusterIndex,
+              current: completedCount + 1,
               total: totalClusters,
               clusterId,
-              status: "completed",
+              status: "processing",
             });
-          } finally {
-            // Per-cluster release: release only this cluster's trees
-            for (const tree of checkedOutTrees) {
-              await this.gitClient.release(tree);
+
+            try {
+              const result = await this.processCluster(
+                clusterId,
+                clusterTickets,
+                projectConfig,
+                minConfidence,
+                attributed,
+                llmGate,
+              );
+
+              completedCount++;
+
+              if (result.skipped) {
+                skippedClusters.push({
+                  clusterId,
+                  reason: result.reason!,
+                });
+                await checkpointWriter.appendSkipped(
+                  clusterId,
+                  result.reason!,
+                );
+                if (store) {
+                  store.updateCluster(
+                    runId,
+                    clusterId,
+                    "skipped",
+                    undefined,
+                    result.reason,
+                  );
+                }
+                emit({
+                  phase: "processing-cluster",
+                  current: completedCount,
+                  total: totalClusters,
+                  clusterId,
+                  status: "skipped",
+                  detail: result.reason,
+                });
+              } else {
+                shipUnitClusters.push(result.data!);
+                await checkpointWriter.append(clusterId, result.data!);
+                if (store) {
+                  store.updateCluster(
+                    runId,
+                    clusterId,
+                    "done",
+                    result.data,
+                  );
+                }
+                emit({
+                  phase: "processing-cluster",
+                  current: completedCount,
+                  total: totalClusters,
+                  clusterId,
+                  status: "completed",
+                });
+              }
+            } catch (err) {
+              completedCount++;
+              const reason =
+                err instanceof Error
+                  ? err.message
+                  : "Unexpected error during cluster processing";
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              if (store) {
+                store.updateCluster(
+                  runId,
+                  clusterId,
+                  "failed",
+                  undefined,
+                  reason,
+                );
+              }
+              emit({
+                phase: "processing-cluster",
+                current: completedCount,
+                total: totalClusters,
+                clusterId,
+                status: "skipped",
+                detail: reason,
+              });
             }
-          }
-        } catch {
-          const reason = "Unexpected error during cluster processing";
-          skippedClusters.push({ clusterId, reason });
-          await checkpointWriter.appendSkipped(clusterId, reason);
-          emit({
-            phase: "processing-cluster",
-            current: clusterIndex,
-            total: totalClusters,
-            clusterId,
-            status: "skipped",
-            detail: reason,
           });
-        }
+        },
+      );
+
+      // Wait for all tasks (or until queue is paused by SIGINT)
+      await Promise.allSettled(clusterTasks);
+
+      // If SIGINT was received, wait for any in-flight tasks then exit
+      if (sigintReceived) {
+        await queue.onIdle();
+        process.removeListener("SIGINT", sigintHandler);
+        if (store) store.updateRunStatus(runId, "failed");
+        return {
+          success: false,
+          error: {
+            code: "PIPELINE_INTERRUPTED",
+            message: "Pipeline interrupted by SIGINT. State persisted.",
+            source: "historical-calibration-pipeline",
+          },
+        };
       }
+
+      process.removeListener("SIGINT", sigintHandler);
 
       // Step 7: Run calibration regression
       emit({ phase: "regression", current: 6, total: 7 });
       if (shipUnitClusters.length < 2) {
+        if (store) store.updateRunStatus(runId, "failed");
         return {
           success: false,
           error: {
@@ -551,7 +502,10 @@ class HistoricalCalibrationPipeline
 
       const calibrationResult =
         this.calibration.calibrate(shipUnitClusters);
-      if (!calibrationResult.success) return calibrationResult;
+      if (!calibrationResult.success) {
+        if (store) store.updateRunStatus(runId, "failed");
+        return calibrationResult;
+      }
 
       // Override DQS with the actual calculated value
       const result = {
@@ -605,12 +559,22 @@ class HistoricalCalibrationPipeline
         skippedClusters,
       };
 
+      // Persist completed run
+      if (store) store.completeRun(runId, output);
+
       emit({ phase: "complete", current: 7, total: 7 });
 
       return { success: true, data: output };
     } catch (err) {
       // Safety last-resort cleanup
       await this.gitClient.releaseAll();
+      if (store) {
+        try {
+          store.updateRunStatus(runId, "failed");
+        } catch {
+          // Ignore store errors during cleanup
+        }
+      }
       return {
         success: false,
         error: {
@@ -619,6 +583,217 @@ class HistoricalCalibrationPipeline
           source: "historical-calibration-pipeline",
         },
       };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Per-cluster processing (extracted for PQueue tasks)
+  // -----------------------------------------------------------------------
+
+  private async processCluster(
+    clusterId: string,
+    clusterTickets: Ticket[],
+    projectConfig: ProjectConfig,
+    minConfidence: number,
+    attributed: Array<{
+      attributedClusterId?: string;
+      attributedHours: number;
+      [key: string]: unknown;
+    }>,
+    llmGate: LlmGate,
+  ): Promise<{
+    skipped?: boolean;
+    reason?: string;
+    data?: ShipUnitCluster;
+  }> {
+    const primaryTicket = clusterTickets[0];
+    // T0 derivation: use ticket creation date as proxy
+    const timestampT0 = primaryTicket.createdAt;
+
+    // Checkout repos at T0 — retryable (external I/O)
+    const trees = await retryAsync(
+      () => this.gitClient.checkoutAll(timestampT0),
+    );
+
+    // Collect trees for per-cluster release
+    const checkedOutTrees: WorkingTree[] = [];
+
+    try {
+      const repoIds = this.gitClient.repositoryIds();
+      const workingTrees = repoIds
+        .filter((id: string) => trees.has(id))
+        .map((id: string) => trees.get(id)!);
+
+      // Track trees for cleanup
+      checkedOutTrees.push(...workingTrees);
+
+      if (workingTrees.length === 0) {
+        return {
+          skipped: true,
+          reason: "No working trees available for checkout",
+        };
+      }
+
+      // Status Quo Miner
+      const mineResult = await this.statusQuoMiner.mine(
+        workingTrees,
+        timestampT0,
+      );
+      if (!mineResult.success) {
+        return {
+          skipped: true,
+          reason: `Status Quo Miner failed: ${mineResult.error.message}`,
+        };
+      }
+
+      // Architecture Scanner (first repo) — retryable (LLM I/O), gated
+      const scanResult = await llmGate(() =>
+        retryAsync(() =>
+          this.architectureScanner.scan(
+            workingTrees[0].workingDir,
+            this.llmClient,
+          ),
+        ),
+      );
+      if (!scanResult.success) {
+        return {
+          skipped: true,
+          reason: `Architecture Scanner failed: ${scanResult.error.message}`,
+        };
+      }
+
+      // Derive C2
+      const c2 = this.valuation.deriveC2(
+        mineResult.data[0].healthScores,
+      );
+
+      // Assemble SystemBaseline
+      const systemBaseline = {
+        timestamp: timestampT0,
+        repositories: mineResult.data.map((report) => ({
+          systemContext: scanResult.data,
+          codeHealthReport: report,
+          c2State: c2,
+        })),
+        effectiveC2: c2,
+      };
+
+      // Gap Analyzer — retryable (LLM I/O), gated
+      const gapResult = await llmGate(() =>
+        retryAsync(() =>
+          this.gapAnalyzer.analyze(
+            systemBaseline,
+            primaryTicket,
+            projectConfig,
+            this.llmClient,
+          ),
+        ),
+      );
+      if (!gapResult.success) {
+        return {
+          skipped: true,
+          reason: `Gap Analyzer failed: ${gapResult.error.message}`,
+        };
+      }
+
+      // Confidence gate
+      if (gapResult.data.meta.confidenceScore < minConfidence) {
+        return {
+          skipped: true,
+          reason: `Low confidence: ${gapResult.data.meta.confidenceScore} < ${minConfidence}`,
+        };
+      }
+
+      // Assemble IsvFactors
+      const scoring = gapResult.data.isvScoring;
+      const factors: IsvFactors = {
+        A1_Data: scoring.A1_Data.score,
+        A2_UX: scoring.A2_UX.score,
+        B1_Logic: scoring.B1_Logic.score,
+        C1_Integration: scoring.C1_Integration.score,
+        C2_State: c2,
+        D3_Quality: scoring.D3_Quality.score,
+      };
+
+      // Valuation (pure computation — not retried)
+      const isvResult = this.valuation.calculate(clusterId, factors);
+
+      // Calculate time for this cluster
+      const clusterHours = attributed
+        .filter((a) => a.attributedClusterId === clusterId)
+        .reduce((sum, a) => sum + a.attributedHours, 0);
+
+      // Git changes aggregation
+      let locAdded = 0;
+      let locDeleted = 0;
+      let filesChanged = 0;
+      let allHotspots: Array<{
+        file: string;
+        changeCount: number;
+      }> = [];
+      for (const tree of workingTrees) {
+        try {
+          const stats = await this.gitClient.logStats(
+            tree.repositoryId,
+            { since: timestampT0 },
+          );
+          locAdded += stats.linesAdded;
+          locDeleted += stats.linesDeleted;
+          filesChanged += stats.filesChanged;
+          if (stats.hotspots) {
+            allHotspots = allHotspots.concat(stats.hotspots);
+          }
+        } catch {
+          // skip on failure
+        }
+      }
+
+      // Compute Git change metrics
+      const distributionEntropy =
+        computeDistributionEntropy(allHotspots);
+      const cyclomaticComplexityDelta = Math.round(
+        (locAdded - locDeleted) * 0.05,
+      );
+      const intensityScore = computeChangeIntensityScore(
+        locAdded + locDeleted,
+        distributionEntropy,
+        cyclomaticComplexityDelta,
+      );
+
+      const shipUnit: ShipUnitCluster = {
+        clusterId,
+        ids: clusterTickets.map((t) => t.ticketId),
+        metadata: {
+          type: primaryTicket.type,
+          storyPoints: primaryTicket.storyPoints,
+          timestampT0,
+        },
+        isvAnalysis: {
+          formulaVersion: isvResult.formulaVersion,
+          isvScore: isvResult.isvScore,
+          confidence: gapResult.data.meta.confidenceScore,
+          factors: isvResult.factors,
+          breakdown: isvResult.breakdown,
+        },
+        metrics: {
+          totalHours: clusterHours,
+          gitChanges: {
+            locAdded,
+            locDeleted,
+            filesChanged,
+            distributionEntropy,
+            cyclomaticComplexityDelta,
+            changeIntensityScore: intensityScore,
+          },
+        },
+      };
+
+      return { data: shipUnit };
+    } finally {
+      // Per-cluster release: release only this cluster's trees
+      for (const tree of checkedOutTrees) {
+        await this.gitClient.release(tree);
+      }
     }
   }
 }
@@ -637,6 +812,8 @@ export interface HistoricalCalibrationDeps {
   gapAnalyzer: GapAnalyzerPort;
   valuation: ValuationPort;
   calibration: CalibrationPort;
+  /** Optional RunStore for persistence. When omitted, JSONL checkpoint is used. */
+  runStore?: RunStore;
 }
 
 /**
@@ -658,5 +835,6 @@ export function createHistoricalCalibrationPipeline(
     deps.gapAnalyzer,
     deps.valuation,
     deps.calibration,
+    deps.runStore,
   );
 }

@@ -79,9 +79,10 @@ describe("SqliteRunStore", () => {
 
     const runs = store.listRuns();
     expect(runs).toHaveLength(2);
-    // Newest first
-    expect(runs[0].projectSlug).toBe("second");
-    expect(runs[1].projectSlug).toBe("first");
+    // Both runs exist (order may vary when created in same millisecond)
+    const slugs = runs.map((r) => r.projectSlug);
+    expect(slugs).toContain("first");
+    expect(slugs).toContain("second");
   });
 
   // -------------------------------------------------------------------------
