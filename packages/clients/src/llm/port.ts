@@ -12,6 +12,8 @@ export interface LlmPromptInput {
   readonly maxTokens?: number;
   /** Optional working directory for CLI-based adapters. */
   readonly cwd?: string;
+  /** Optional abort signal to cancel a running LLM invocation. */
+  readonly signal?: AbortSignal;
 }
 
 /**

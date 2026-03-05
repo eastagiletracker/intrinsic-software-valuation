@@ -252,7 +252,7 @@ async function runCalibrateStatus(args: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Calibrate command
+// Help texts
 // ---------------------------------------------------------------------------
 
 async function runCalibrate(args: string[]): Promise<void> {
@@ -294,33 +294,67 @@ async function runCalibrate(args: string[]): Promise<void> {
   const configPath = resolve(cwd, "data", projectSlug, "project-config.json");
   let rawConfig: Record<string, unknown>;
   try {
-    const content = await readFile(configPath, "utf-8");
-    rawConfig = JSON.parse(content);
+    return JSON.parse(content) as Record<string, unknown>;
   } catch {
-    console.error(`Error: Could not read project config at ${configPath}`);
+    console.error(
+      `Error: Invalid JSON in project config for "${projectSlug}" at ${configPath}`,
+    );
+    process.exit(2);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Calculate command
+// ---------------------------------------------------------------------------
+
+async function runCalculate(args: string[]): Promise<void> {
+  if (hasFlag(args, "--help")) {
+    console.error(CALCULATE_HELP);
+    process.exit(0);
+  }
+
+  const ticketId = args[0] && !args[0].startsWith("--") ? args[0] : undefined;
+  const projectSlug = findFlag(args, "--project");
+  const jsonOnly = hasFlag(args, "--json");
+
+  if (!ticketId || !projectSlug) {
+    console.error(
+      "Error: Both <ticketId> and --project <slug> are required.\n",
+    );
+    console.error(CALCULATE_HELP);
     process.exit(1);
   }
 
+  const cwd = monorepoRoot();
+  const projectConfig = await loadProjectConfig(projectSlug);
+
   // Create pipeline from config
-  const factoryResult = await createHistoricalCalibrationFromConfig(rawConfig, {
+  const factoryResult = await createIsvCalculationFromConfig(projectConfig, {
     cwd,
   });
   if (!factoryResult.success) {
-    console.error(`Error: ${factoryResult.error.message}`);
-    process.exit(1);
+    console.error(JSON.stringify(factoryResult.error, null, 2));
+    process.exit(2);
   }
 
   const { pipeline, cleanup } = factoryResult.data;
 
-  // Progress callback — render to stdout
-  const onProgress = (event: CalibrationProgressEvent): void => {
-    const prefix =
-      event.total > 0 ? `[${event.current}/${event.total}]` : "[-]";
-    const cluster = event.clusterId ? ` ${event.clusterId}` : "";
-    const status = event.status ? ` — ${event.status}` : "";
-    const detail = event.detail ? ` (${event.detail})` : "";
-    console.log(`${prefix} ${event.phase}${cluster}${status}${detail}`);
-  };
+  // Extract d3QualityFloor from project config (same as web endpoint)
+  const pipelineConfig = projectConfig.pipeline as
+    | Record<string, unknown>
+    | undefined;
+  const rawFloor = pipelineConfig?.d3QualityFloor;
+  const d3QualityFloor =
+    rawFloor === 1 || rawFloor === 2 || rawFloor === 3 ? rawFloor : undefined;
+
+  // Progress callback — render to stderr
+  const onProgress = jsonOnly
+    ? undefined
+    : (event: PipelineProgressEvent): void => {
+        console.error(
+          `[step ${event.completedSteps}/${event.totalSteps}] ${event.step}${event.detail ? ` — ${event.detail}` : ""}`,
+        );
+      };
 
   // Generate effective run ID
   const effectiveRunId =
@@ -352,6 +386,79 @@ async function runCalibrate(args: string[]): Promise<void> {
     console.log(`  Concurrency: ${concurrency}  |  LLM Concurrency: ${llmConcurrency}`);
     console.log("");
 
+    if (!result.success) {
+      console.error(JSON.stringify(result.error, null, 2));
+      process.exit(2);
+    }
+
+    // Print enriched result to stdout as pretty-printed JSON
+    console.log(JSON.stringify(result.data, null, 2));
+  } finally {
+    await cleanup();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Calibrate command
+// ---------------------------------------------------------------------------
+
+async function runCalibrate(args: string[]): Promise<void> {
+  if (hasFlag(args, "--help")) {
+    console.error(CALIBRATE_HELP);
+    process.exit(0);
+  }
+
+  const projectSlug = findFlag(args, "--project");
+  const jsonOnly = hasFlag(args, "--json");
+
+  if (!projectSlug) {
+    console.error("Error: --project <slug> is required.\n");
+    console.error(CALIBRATE_HELP);
+    process.exit(1);
+  }
+
+  const cwd = monorepoRoot();
+  const projectConfig = await loadProjectConfig(projectSlug);
+
+  // Create pipeline from config
+  const factoryResult = await createHistoricalCalibrationFromConfig(
+    projectConfig,
+    { cwd },
+  );
+  if (!factoryResult.success) {
+    console.error(JSON.stringify(factoryResult.error, null, 2));
+    process.exit(2);
+  }
+
+  const { pipeline, cleanup } = factoryResult.data;
+
+  // Optional flags
+  const periodStart = findFlag(args, "--period-start");
+  const periodEnd = findFlag(args, "--period-end");
+  const rawD3Floor = findFlag(args, "--d3-quality-floor");
+  const d3QualityFloor =
+    rawD3Floor === "1" || rawD3Floor === "2" || rawD3Floor === "3"
+      ? (Number(rawD3Floor) as 1 | 2 | 3)
+      : undefined;
+  const rawMinConfidence = findFlag(args, "--min-confidence");
+  const minConfidence =
+    rawMinConfidence !== undefined ? Number(rawMinConfidence) : undefined;
+
+  // Progress callback — render to stderr
+  const onProgress = jsonOnly
+    ? undefined
+    : (event: CalibrationProgressEvent): void => {
+        const prefix =
+          event.total > 0 ? `[${event.current}/${event.total}]` : "[-]";
+        const cluster = event.clusterId ? ` ${event.clusterId}` : "";
+        const status = event.status ? ` — ${event.status}` : "";
+        const detail = event.detail ? ` (${event.detail})` : "";
+        console.error(
+          `${prefix} ${event.phase}${cluster}${status}${detail}`,
+        );
+      };
+
+  try {
     const result = await pipeline.run({
       projectSlug,
       periodStart,
@@ -367,34 +474,8 @@ async function runCalibrate(args: string[]): Promise<void> {
       process.exit(sigintReceived ? 130 : 1);
     }
 
-    // Write result JSON
-    const resultDir = join(
-      cwd,
-      "data",
-      projectSlug,
-      "calibration-runs",
-      effectiveRunId,
-    );
-    await mkdir(resultDir, { recursive: true });
-    const resultPath = join(resultDir, "result.json");
-    await writeFile(resultPath, JSON.stringify(result.data, null, 2), "utf-8");
-
-    // Print summary
-    const { clusters, skippedClusters } = result.data;
-    console.log("\n--- Calibration Complete ---");
-    console.log(`Total clusters: ${clusters.length + skippedClusters.length}`);
-    console.log(`Successful:     ${clusters.length}`);
-    console.log(`Skipped:        ${skippedClusters.length}`);
-    if (skippedClusters.length > 0) {
-      console.log(
-        `Skipped IDs:    ${skippedClusters.map((s) => s.clusterId).join(", ")}`,
-      );
-    }
-    console.log(
-      `Ship Rate:      ${result.data.result.shipRateHoursPerIsv.toFixed(2)} hrs/ISV`,
-    );
-    console.log(`R²:             ${result.data.result.rSquared.toFixed(4)}`);
-    console.log(`Result file:    ${resultPath}`);
+    // Print CalibrationRunOutput to stdout as pretty-printed JSON
+    console.log(JSON.stringify(result.data, null, 2));
   } finally {
     process.removeListener("SIGINT", sigintHandler);
     await cleanup();
@@ -408,30 +489,33 @@ async function runCalibrate(args: string[]): Promise<void> {
 // Main
 // ---------------------------------------------------------------------------
 
-const args = process.argv.slice(2);
+// Strip a leading "--" argument. pnpm/npm uses "--" as a separator between
+// the script name and its arguments (e.g. `pnpm cli -- calculate TICKET-1`).
+// When the script is invoked via `pnpm cli -- ...`, the "--" ends up in
+// process.argv and must be removed before command dispatch.
+const rawArgs = process.argv.slice(2);
+const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
 const command = args[0];
 
 switch (command) {
   case "calculate": {
-    const ticketId = args[1];
-    if (!ticketId) {
-      console.error("Usage: isv calculate <ticketId>");
-      process.exit(1);
-    }
-    console.log(`ISV calculation for ticket: ${ticketId}`);
-    console.log(
-      "Note: Full CLI integration requires configured client adapters (Git, Jira, LLM).",
-    );
-    console.log(
-      "See packages/interfaces/cli/README.md for configuration instructions.",
-    );
+    runCalculate(args.slice(1)).catch((err: unknown) => {
+      console.error(
+        "Unexpected error:",
+        err instanceof Error ? err.message : String(err),
+      );
+      process.exit(2);
+    });
     break;
   }
 
   case "calibrate": {
-    runCalibrate(args.slice(1)).catch((err) => {
-      console.error("Unexpected error:", err);
-      process.exit(1);
+    runCalibrate(args.slice(1)).catch((err: unknown) => {
+      console.error(
+        "Unexpected error:",
+        err instanceof Error ? err.message : String(err),
+      );
+      process.exit(2);
     });
     break;
   }
@@ -471,4 +555,11 @@ switch (command) {
     console.log("Options:");
     console.log("  --help                               Show this help message");
     break;
+  }
+
+  default: {
+    console.error(`Unknown command: ${command}\n`);
+    console.error(GENERAL_HELP);
+    process.exit(1);
+  }
 }

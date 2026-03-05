@@ -358,6 +358,35 @@ The interface layer adapts external protocols to pipeline calls. Each interface 
 |---|---|---|
 | `src/` (new) | Create with README | Top-level source root |
 | `src/domain/` (new) | Create with README + interfaces | Derived from concept doc TypeScript schemas |
+
+## Historical Calibration Report Architecture
+
+The historical calibration report is a read-only visualization layer over persisted calibration output.
+
+### Data generation and persistence
+
+- CLI calibration runs generate `CalibrationRunOutput` JSON files.
+- Files are persisted per client under `data/<clientSlug>/calibration/`.
+- Report filename convention is `report-YYYY-MM_YYYY-MM.json` (timeframe start/end).
+- Multiple runs with different timeframes must coexist as separate files in that folder.
+
+### Read model and routing
+
+- The web UI does not trigger calibration computation for report rendering.
+- The web UI reads existing report files and presents them through two route types:
+      - report index route (list/filter all available reports),
+      - report detail route (render one selected report).
+- Report list entries should expose annotations such as timeframe, creation timestamp, sample size, and fit quality badge.
+
+### Terminology assistance
+
+- Calibration report pages must support optional term explanations for domain-specific vocabulary.
+- Explanations are available by hover and by an explicit global show/hide toggle.
+
+### Visualization semantics
+
+- Scatter visualizations must avoid wording that implies forecasting or planning predictions.
+- Preferred wording: "ISV-derived comparison value vs. actual tracked hours" instead of "actual vs predicted hours".
 | `src/clients/` (new) | Create with README + subfolders | One subfolder per external system |
 | `src/services/` (new) | Create with README + subfolders | One subfolder per ISV phase |
 | `src/pipelines/` (new) | Create with README + 2 subfolders | One per use case |

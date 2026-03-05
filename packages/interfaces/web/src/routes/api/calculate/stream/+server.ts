@@ -81,6 +81,9 @@ export const GET: RequestHandler = async ({ url }) => {
       ? rawFloor
       : undefined;
 
+  // Abort controller — signals the pipeline to stop when the client disconnects.
+  const abortController = new AbortController();
+
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -101,10 +104,21 @@ export const GET: RequestHandler = async ({ url }) => {
         writeSSE(event);
       }
 
+      // SSE keepalive — send a comment line every 15 s to prevent idle-timeout
+      // disconnections during long-running LLM calls.
+      const keepalive = setInterval(() => {
+        try {
+          write(": keepalive\n\n");
+        } catch {
+          // Stream already closed — interval will be cleared in finally.
+        }
+      }, 15_000);
+
       // Run the pipeline asynchronously
       pipeline
-        .run(ticketId, { d3QualityFloor }, onProgress)
+        .run(ticketId, { d3QualityFloor }, onProgress, abortController.signal)
         .then((result) => {
+          if (abortController.signal.aborted) return;
           if (result.success) {
             writeSSE({ success: true, data: result.data }, "done");
           } else {
@@ -112,14 +126,22 @@ export const GET: RequestHandler = async ({ url }) => {
           }
         })
         .catch((err: unknown) => {
+          if (abortController.signal.aborted) return;
           const message =
             err instanceof Error ? err.message : String(err);
           writeSSE({ code: "PIPELINE_ERROR", message, source: "web-api" }, "error");
         })
         .finally(async () => {
+          clearInterval(keepalive);
           await cleanup();
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         });
+    },
+
+    cancel() {
+      // Called when the client disconnects (browser closes EventSource).
+      // Abort the pipeline so running LLM child processes are killed.
+      abortController.abort();
     },
   });
 

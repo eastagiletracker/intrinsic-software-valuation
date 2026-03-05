@@ -8,6 +8,8 @@ The goal is to determine the Ship Rate: a stable conversion between ISV points a
 
 Calibration also serves as an **empirical confidence check** for the static ISV formula. By preserving full factor-level detail for every calibrated cluster, the system surfaces statistical diagnostics that reveal whether the formula's factor weights and structure are realistic relative to actual invested effort. The formula itself is never adjusted automatically — diagnostics inform deliberate, human-decided revisions (see Formula Versioning in [ISV Engine - 02 - Valuation](ISV%20Engine%20-%2002%20-%20Valuation.md)).
 
+For visualization, report structure, static JSON storage, and UI routing, see [ISV Engine - 03 - Historical Calibration Report](ISV%20Engine%20-%2003%20-%20Historical%20Calibration%20Report.md).
+
 ## Calibration Scope
 
 Every calibration run is scoped to a **named project** and a **calendar window**.

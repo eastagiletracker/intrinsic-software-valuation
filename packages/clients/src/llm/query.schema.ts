@@ -40,6 +40,7 @@ export const LlmQuerySchema = z
           "allowing it to resolve relative paths within the repository.",
       ),
   })
+  .passthrough()
   .describe(
     "Structured query for the LLM client. " +
       "Contains system and user prompts plus optional generation parameters.",
