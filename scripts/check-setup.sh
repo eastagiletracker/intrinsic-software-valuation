@@ -57,6 +57,13 @@ else
   fail "Git not found — install via https://git-scm.com or: brew install git"
 fi
 
+# node:sqlite (built-in with Node 24+)
+if node -e "require('node:sqlite')" &>/dev/null 2>&1; then
+  pass "node:sqlite available (built-in)"
+else
+  fail "node:sqlite not available — requires Node.js 24+ (used by calibration pipeline)"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. GitHub Copilot CLI (LLM adapter)
 # ---------------------------------------------------------------------------
