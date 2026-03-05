@@ -12,10 +12,18 @@ interface KnipReport {
 /**
  * Parse raw knip JSON output into a `KnipResult`.
  *
+ * knip may prefix its JSON with non-JSON text (e.g. setup hints).
+ * We extract the first JSON object/array from the output.
+ *
  * Exported for unit testing against fixtures.
  */
 export function parseKnipOutput(json: string): KnipResult {
-  const report: KnipReport = JSON.parse(json);
+  // Strip any non-JSON preamble: find the first '{' or '['
+  const start = json.search(/[{[]/);
+  if (start === -1) {
+    return { deadCodeFiles: 0 };
+  }
+  const report: KnipReport = JSON.parse(json.slice(start));
   return {
     deadCodeFiles: report.files.length,
   };

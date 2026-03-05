@@ -86,11 +86,18 @@ Produce the GapAnalysisResult JSON now.`;
       // Parse LLM response as JSON
       let rawJson: unknown;
       try {
-        const text = llmResult.data
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
-          .replace(/\s*```$/i, "")
-          .trim();
+        // Handle markdown code fences around JSON, possibly with preamble text
+        let text = llmResult.data;
+        const fenceMatch = text.match(/```json\s*\n([\s\S]*?)\n\s*```/i);
+        if (fenceMatch) {
+          text = fenceMatch[1];
+        } else {
+          text = text
+            .replace(/^```json\s*/i, "")
+            .replace(/^```\s*/i, "")
+            .replace(/\s*```$/i, "")
+            .trim();
+        }
         rawJson = JSON.parse(text);
       } catch {
         return {
