@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CalibrationRunOutputSchema } from "@isv/domain";
 import type {
   TicketClient,
@@ -16,6 +16,8 @@ import type {
 } from "@isv/services";
 
 import { createHistoricalCalibrationPipeline } from "./pipeline.js";
+import type { CalibrationProgressEvent } from "./progress.js";
+import { CheckpointWriter, CheckpointReader } from "../shared/checkpoint.js";
 
 // ---------------------------------------------------------------------------
 // Mock data
@@ -351,6 +353,27 @@ const mockCalibration: CalibrationPort = {
 // ---------------------------------------------------------------------------
 
 describe("Historical Calibration Pipeline — boundary test", () => {
+  // Reset mocks between tests to prevent state leakage
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Re-apply default mock implementations after clearing
+    (mockTicketClient.getTickets as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      data: mockTickets,
+    });
+    (mockGitClient.repositoryIds as ReturnType<typeof vi.fn>).mockReturnValue(["test-repo"]);
+    (mockGitClient.checkoutAll as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Map([["test-repo", mockWorkingTree]]),
+    );
+    (mockGitClient.release as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (mockGitClient.releaseAll as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (mockGitClient.logStats as ReturnType<typeof vi.fn>).mockResolvedValue({
+      linesAdded: 100,
+      linesDeleted: 50,
+      filesChanged: 10,
+      hotspots: [],
+    });
+  });
   it("produces schema-valid CalibrationRunOutput", async () => {
     const pipeline = createHistoricalCalibrationPipeline({
       ticketClient: mockTicketClient,
@@ -488,5 +511,190 @@ describe("Historical Calibration Pipeline — boundary test", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe("INSUFFICIENT_CLUSTERS");
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-5.4 — Per-cluster release
+  // -------------------------------------------------------------------------
+
+  it("calls release() per-tree instead of releaseAll() in the happy path", async () => {
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    const result = await pipeline.run({});
+    expect(result.success).toBe(true);
+
+    // release() should be called once per cluster (2 clusters × 1 tree each)
+    expect(mockGitClient.release).toHaveBeenCalledTimes(2);
+    expect(mockGitClient.release).toHaveBeenCalledWith(mockWorkingTree);
+
+    // releaseAll() should NOT be called in the happy path
+    expect(mockGitClient.releaseAll).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-3.7 — Progress callback
+  // -------------------------------------------------------------------------
+
+  it("emits onProgress events in correct order with consistent current/total", async () => {
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    const events: CalibrationProgressEvent[] = [];
+    const result = await pipeline.run({
+      onProgress: (event) => events.push(event),
+    });
+
+    expect(result.success).toBe(true);
+
+    // Expect pipeline phases + cluster events + complete
+    const phases = events.map((e) => e.phase);
+
+    // Pipeline phases should be in order
+    expect(phases[0]).toBe("loading-tickets");
+    expect(phases[1]).toBe("clustering");
+    expect(phases[2]).toBe("loading-time-entries");
+    expect(phases[3]).toBe("attributing-time");
+    expect(phases[4]).toBe("calculating-dqs");
+
+    // Cluster events
+    const clusterEvents = events.filter(
+      (e) => e.phase === "processing-cluster",
+    );
+    expect(clusterEvents.length).toBe(4); // 2 clusters × 2 events (processing + completed)
+
+    // Last events should be regression and complete
+    expect(phases[phases.length - 2]).toBe("regression");
+    expect(phases[phases.length - 1]).toBe("complete");
+  });
+
+  it("does not crash when onProgress callback throws", async () => {
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    const result = await pipeline.run({
+      onProgress: () => {
+        throw new Error("callback error");
+      },
+    });
+
+    // Pipeline should still succeed despite callback errors
+    expect(result.success).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // AC-2.11 — Checkpoint resume
+  // -------------------------------------------------------------------------
+
+  it("resumes from a partial checkpoint and produces complete output", async () => {
+    const runId = `test-resume-${Date.now()}`;
+    const checkpointPath = `data/default/calibration-runs/${runId}/progress.jsonl`;
+
+    // Write a checkpoint entry for PROJ-1 (simulating a partial previous run)
+    const writer = new CheckpointWriter(checkpointPath);
+    await writer.append("PROJ-1", {
+      clusterId: "PROJ-1",
+      ids: ["PROJ-1"],
+      metadata: {
+        type: "Story",
+        timestampT0: "2025-01-01T00:00:00.000Z",
+      },
+      isvAnalysis: {
+        formulaVersion: "3.4",
+        isvScore: 4,
+        confidence: 0.85,
+        factors: {
+          A1_Data: 1,
+          A2_UX: 2,
+          B1_Logic: 2,
+          C1_Integration: 1,
+          C2_State: 1,
+          D3_Quality: 1,
+        },
+        breakdown: { poValue: 4, archFactor: 1, qualityMultiplier: 1 },
+      },
+      metrics: {
+        totalHours: 16,
+        gitChanges: {
+          locAdded: 100,
+          locDeleted: 50,
+          filesChanged: 10,
+          distributionEntropy: 0,
+          cyclomaticComplexityDelta: 3,
+          changeIntensityScore: 0.4,
+        },
+      },
+    });
+
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    const events: CalibrationProgressEvent[] = [];
+    const result = await pipeline.run({
+      runId,
+      onProgress: (event) => events.push(event),
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    // Should have 2 clusters in the output
+    expect(result.data.clusters).toHaveLength(2);
+
+    // PROJ-1 should have been restored from checkpoint
+    const restoredEvents = events.filter((e) => e.status === "restored");
+    expect(restoredEvents).toHaveLength(1);
+    expect(restoredEvents[0].clusterId).toBe("PROJ-1");
+
+    // PROJ-2 should have been processed fresh
+    const completedEvents = events.filter((e) => e.status === "completed");
+    expect(completedEvents).toHaveLength(1);
+    expect(completedEvents[0].clusterId).toBe("PROJ-2");
+
+    // Only PROJ-2's checkout should have happened (PROJ-1 was restored)
+    expect(mockGitClient.checkoutAll).toHaveBeenCalledTimes(1);
+
+    // Clean up
+    const { rm } = await import("node:fs/promises");
+    await rm(`data/default/calibration-runs/${runId}`, {
+      recursive: true,
+      force: true,
+    });
   });
 });

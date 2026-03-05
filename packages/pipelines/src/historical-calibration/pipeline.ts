@@ -11,6 +11,7 @@ import type {
   GitClient,
   LlmClient,
   TimeTrackingClient,
+  WorkingTree,
 } from "@isv/clients";
 import type {
   StatusQuoMinerPort,
@@ -24,6 +25,15 @@ import type {
   HistoricalCalibrationPipelinePort,
   HistoricalCalibrationConfig,
 } from "./port.js";
+import type {
+  CalibrationProgressEvent,
+  CalibrationProgressCallback,
+} from "./progress.js";
+import { retryAsync } from "../shared/retry.js";
+import {
+  CheckpointWriter,
+  CheckpointReader,
+} from "../shared/checkpoint.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,6 +122,28 @@ function computeChangeIntensityScore(
   );
 }
 
+/**
+ * Generate a default run ID from the current timestamp with a random suffix
+ * to ensure uniqueness even when multiple runs start in the same second.
+ */
+function generateRunId(): string {
+  const now = new Date();
+  const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `cal-${ts}-${rand}`;
+}
+
+/**
+ * Resolve the checkpoint file path for a calibration run.
+ */
+function resolveCheckpointPath(
+  projectSlug: string | undefined,
+  runId: string,
+): string {
+  const slug = projectSlug ?? "default";
+  return `data/${slug}/calibration-runs/${runId}/progress.jsonl`;
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline implementation
 // ---------------------------------------------------------------------------
@@ -134,6 +166,21 @@ class HistoricalCalibrationPipeline
   async run(
     config: HistoricalCalibrationConfig,
   ): Promise<Result<CalibrationRunOutput>> {
+    /** Safely invoke the progress callback, swallowing any errors it throws. */
+    const emit = (event: CalibrationProgressEvent): void => {
+      if (!config.onProgress) return;
+      try {
+        config.onProgress(event);
+      } catch (e) {
+        console.warn("[calibration-pipeline] onProgress callback threw:", e);
+      }
+    };
+
+    // Checkpoint setup
+    const runId = config.runId ?? generateRunId();
+    const checkpointPath = resolveCheckpointPath(config.projectSlug, runId);
+    const checkpointWriter = new CheckpointWriter(checkpointPath);
+
     try {
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
@@ -144,6 +191,7 @@ class HistoricalCalibrationPipeline
       const period = resolvePeriod(config);
 
       // Step 1: Load tickets (with optional timeframe filter)
+      emit({ phase: "loading-tickets", current: 1, total: 7 });
       const ticketResult = await this.ticketClient.getTickets({
         mode: "all",
         timeframe: { start: period.start, end: period.end },
@@ -163,35 +211,91 @@ class HistoricalCalibrationPipeline
       }
 
       // Step 2: Cluster tickets
+      emit({ phase: "clustering", current: 2, total: 7 });
       const ticketClusters = this.calibration.clusterTickets(tickets);
 
       // Step 3: Load time entries (with timeframe filter)
+      emit({ phase: "loading-time-entries", current: 3, total: 7 });
       const timeSheet = await this.timeTrackingClient.getTimeSheet({
         timeframe: { start: period.start, end: period.end },
       });
       const timeEntries = timeSheet.entries;
 
       // Step 4: Attribute time to clusters
+      emit({ phase: "attributing-time", current: 4, total: 7 });
       const attributed = this.calibration.attributeTime(
         timeEntries,
         ticketClusters,
       );
 
       // Step 5: Calculate DQS
+      emit({ phase: "calculating-dqs", current: 5, total: 7 });
       const dqs = this.calibration.calculateDqs(attributed);
 
       // Step 6: For each cluster, run fact finding + gap analysis + valuation
       const shipUnitClusters: ShipUnitCluster[] = [];
       const skippedClusters: Array<{ clusterId: string; reason: string }> = [];
 
-      for (const [clusterId, clusterTickets] of ticketClusters) {
+      // Load checkpoint for resume
+      const checkpoint = await CheckpointReader.load(checkpointPath);
+
+      const clusterEntries = [...ticketClusters];
+      const totalClusters = clusterEntries.length;
+      let clusterIndex = 0;
+
+      for (const [clusterId, clusterTickets] of clusterEntries) {
+        clusterIndex++;
+
+        // Check if already in checkpoint (resume)
+        const existingEntry = checkpoint.get(clusterId);
+        if (existingEntry) {
+          if (existingEntry.skipped) {
+            skippedClusters.push({
+              clusterId,
+              reason: existingEntry.reason ?? "Previously skipped",
+            });
+            emit({
+              phase: "processing-cluster",
+              current: clusterIndex,
+              total: totalClusters,
+              clusterId,
+              status: "skipped",
+              detail: "Restored from checkpoint (skipped)",
+            });
+          } else if (existingEntry.data) {
+            shipUnitClusters.push(existingEntry.data);
+            emit({
+              phase: "processing-cluster",
+              current: clusterIndex,
+              total: totalClusters,
+              clusterId,
+              status: "restored",
+              detail: "Restored from checkpoint",
+            });
+          }
+          continue;
+        }
+
+        emit({
+          phase: "processing-cluster",
+          current: clusterIndex,
+          total: totalClusters,
+          clusterId,
+          status: "processing",
+        });
+
         try {
           const primaryTicket = clusterTickets[0];
           // T0 derivation: use ticket creation date as proxy
           const timestampT0 = primaryTicket.createdAt;
 
-          // Checkout repos at T0 (uses per-cluster T0 timestamp, not period window)
-          const trees = await this.gitClient.checkoutAll(timestampT0);
+          // Checkout repos at T0 — retryable (external I/O)
+          const trees = await retryAsync(
+            () => this.gitClient.checkoutAll(timestampT0),
+          );
+
+          // Collect trees for per-cluster release
+          const checkedOutTrees: WorkingTree[] = [];
 
           try {
             const repoIds = this.gitClient.repositoryIds();
@@ -199,10 +303,20 @@ class HistoricalCalibrationPipeline
               .filter((id: string) => trees.has(id))
               .map((id: string) => trees.get(id)!);
 
+            // Track trees for cleanup
+            checkedOutTrees.push(...workingTrees);
+
             if (workingTrees.length === 0) {
-              skippedClusters.push({
+              const reason = "No working trees available for checkout";
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              emit({
+                phase: "processing-cluster",
+                current: clusterIndex,
+                total: totalClusters,
                 clusterId,
-                reason: "No working trees available for checkout",
+                status: "skipped",
+                detail: reason,
               });
               continue;
             }
@@ -213,22 +327,39 @@ class HistoricalCalibrationPipeline
               timestampT0,
             );
             if (!mineResult.success) {
-              skippedClusters.push({
+              const reason = `Status Quo Miner failed: ${mineResult.error.message}`;
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              emit({
+                phase: "processing-cluster",
+                current: clusterIndex,
+                total: totalClusters,
                 clusterId,
-                reason: `Status Quo Miner failed: ${mineResult.error.message}`,
+                status: "skipped",
+                detail: reason,
               });
               continue;
             }
 
-            // Architecture Scanner (first repo)
-            const scanResult = await this.architectureScanner.scan(
-              workingTrees[0].workingDir,
-              this.llmClient,
+            // Architecture Scanner (first repo) — retryable (LLM I/O)
+            const scanResult = await retryAsync(
+              () =>
+                this.architectureScanner.scan(
+                  workingTrees[0].workingDir,
+                  this.llmClient,
+                ),
             );
             if (!scanResult.success) {
-              skippedClusters.push({
+              const reason = `Architecture Scanner failed: ${scanResult.error.message}`;
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              emit({
+                phase: "processing-cluster",
+                current: clusterIndex,
+                total: totalClusters,
                 clusterId,
-                reason: `Architecture Scanner failed: ${scanResult.error.message}`,
+                status: "skipped",
+                detail: reason,
               });
               continue;
             }
@@ -249,26 +380,43 @@ class HistoricalCalibrationPipeline
               effectiveC2: c2,
             };
 
-            // Gap Analyzer
-            const gapResult = await this.gapAnalyzer.analyze(
-              systemBaseline,
-              primaryTicket,
-              projectConfig,
-              this.llmClient,
+            // Gap Analyzer — retryable (LLM I/O)
+            const gapResult = await retryAsync(
+              () =>
+                this.gapAnalyzer.analyze(
+                  systemBaseline,
+                  primaryTicket,
+                  projectConfig,
+                  this.llmClient,
+                ),
             );
             if (!gapResult.success) {
-              skippedClusters.push({
+              const reason = `Gap Analyzer failed: ${gapResult.error.message}`;
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              emit({
+                phase: "processing-cluster",
+                current: clusterIndex,
+                total: totalClusters,
                 clusterId,
-                reason: `Gap Analyzer failed: ${gapResult.error.message}`,
+                status: "skipped",
+                detail: reason,
               });
               continue;
             }
 
             // Confidence gate
             if (gapResult.data.meta.confidenceScore < minConfidence) {
-              skippedClusters.push({
+              const reason = `Low confidence: ${gapResult.data.meta.confidenceScore} < ${minConfidence}`;
+              skippedClusters.push({ clusterId, reason });
+              await checkpointWriter.appendSkipped(clusterId, reason);
+              emit({
+                phase: "processing-cluster",
+                current: clusterIndex,
+                total: totalClusters,
                 clusterId,
-                reason: `Low confidence: ${gapResult.data.meta.confidenceScore} < ${minConfidence}`,
+                status: "skipped",
+                detail: reason,
               });
               continue;
             }
@@ -284,7 +432,7 @@ class HistoricalCalibrationPipeline
               D3_Quality: scoring.D3_Quality.score,
             };
 
-            // Valuation
+            // Valuation (pure computation — not retried)
             const isvResult = this.valuation.calculate(clusterId, factors);
 
             // Calculate time for this cluster
@@ -317,15 +465,9 @@ class HistoricalCalibrationPipeline
               }
             }
 
-            // Compute Git change metrics (AC-4)
+            // Compute Git change metrics
             const distributionEntropy =
               computeDistributionEntropy(allHotspots);
-            // Cyclomatic complexity delta: ideally computed via static analysis
-            // at T0 and HEAD (AC-4.2). Until that infrastructure is in place,
-            // we use a heuristic: 5% of net LOC change approximates the number
-            // of new decision points introduced. This is a placeholder that
-            // should be replaced with real static analysis (e.g. eslint
-            // complexity rule diff) when available.
             const cyclomaticComplexityDelta = Math.round(
               (locAdded - locDeleted) * 0.05,
             );
@@ -364,18 +506,38 @@ class HistoricalCalibrationPipeline
             };
 
             shipUnitClusters.push(shipUnit);
+            await checkpointWriter.append(clusterId, shipUnit);
+
+            emit({
+              phase: "processing-cluster",
+              current: clusterIndex,
+              total: totalClusters,
+              clusterId,
+              status: "completed",
+            });
           } finally {
-            await this.gitClient.releaseAll();
+            // Per-cluster release: release only this cluster's trees
+            for (const tree of checkedOutTrees) {
+              await this.gitClient.release(tree);
+            }
           }
         } catch {
-          skippedClusters.push({
+          const reason = "Unexpected error during cluster processing";
+          skippedClusters.push({ clusterId, reason });
+          await checkpointWriter.appendSkipped(clusterId, reason);
+          emit({
+            phase: "processing-cluster",
+            current: clusterIndex,
+            total: totalClusters,
             clusterId,
-            reason: "Unexpected error during cluster processing",
+            status: "skipped",
+            detail: reason,
           });
         }
       }
 
       // Step 7: Run calibration regression
+      emit({ phase: "regression", current: 6, total: 7 });
       if (shipUnitClusters.length < 2) {
         return {
           success: false,
@@ -436,16 +598,19 @@ class HistoricalCalibrationPipeline
         };
       });
 
-      return {
-        success: true,
-        data: {
-          result,
-          clusters: shipUnitClusters,
-          residuals,
-          skippedClusters,
-        },
+      const output: CalibrationRunOutput = {
+        result,
+        clusters: shipUnitClusters,
+        residuals,
+        skippedClusters,
       };
+
+      emit({ phase: "complete", current: 7, total: 7 });
+
+      return { success: true, data: output };
     } catch (err) {
+      // Safety last-resort cleanup
+      await this.gitClient.releaseAll();
       return {
         success: false,
         error: {
