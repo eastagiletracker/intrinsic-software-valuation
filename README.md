@@ -37,6 +37,7 @@ pnpm workspace monorepo with one package per architecture layer:
 - `packages/pipelines/` (`@isv/pipelines`) — use-case orchestration (standalone ISV calculation, historical calibration)
 - `packages/interfaces/` — delivery mechanisms:
   - `packages/interfaces/cli/` (`@isv/cli`) — command-line interface
+  - `packages/interfaces/web/` (`@isv/web`) — browser-based UI
 
 For architectural rationale, see `docs/architecture/architecture.md`. For tech stack details, see `docs/architecture/techstack.md`.
 
@@ -49,6 +50,7 @@ Local, gitignored directory for time tracking exports and temporary pipeline art
 Use this repository as a reference and collaboration space for ISV method development.
 
 Typical usage patterns:
+
 - Read the conceptual chapters in `docs/concept/` from `00` upward.
 - Discuss assumptions, definitions, and scoring logic via pull requests.
 - Add or refine chapters and supporting docs incrementally.
@@ -132,7 +134,18 @@ The Status Quo Miner shells out to three CLI tools for code health metrics:
 pnpm install      # install dependencies and link workspace packages
 pnpm run check    # type-check all packages (tsc --build)
 pnpm test         # run unit + boundary tests (Tiers 1–3)
+pnpm run dev:web  # start the web UI from repository root
 ```
+
+## Web UI Usage
+
+Start the web UI development server from the repository root:
+
+```bash
+pnpm run dev:web
+```
+
+This command runs `@isv/web` via workspace filtering.
 
 ## CLI Usage
 

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:web": "pnpm --filter @isv/web dev",
     "check": "tsc --build",
     "test": "vitest run",
     "test:watch": "vitest",
