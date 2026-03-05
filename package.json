@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "cli": "tsx packages/interfaces/cli/src/main.ts",
     "dev:web": "pnpm --filter @isv/web dev",
     "check": "tsc --build",
     "test": "vitest run",
