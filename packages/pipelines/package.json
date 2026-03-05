@@ -13,6 +13,9 @@
   "dependencies": {
     "@isv/clients": "workspace:*",
     "@isv/domain": "workspace:*",
-    "@isv/services": "workspace:*"
+    "@isv/services": "workspace:*",
+    "p-limit": "^7.3.0",
+    "p-queue": "^9.1.0",
+    "p-retry": "^7.1.1"
   }
 }
