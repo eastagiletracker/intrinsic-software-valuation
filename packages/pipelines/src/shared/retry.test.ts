@@ -33,12 +33,11 @@ describe("retryAsync", () => {
   });
 
   it("throws the original error after maxRetries are exhausted", async () => {
-    const original = new Error("persistent");
-    const fn = vi.fn().mockRejectedValue(original);
+    const fn = vi.fn().mockRejectedValue(new Error("persistent"));
 
     await expect(
       retryAsync(fn, { maxRetries: 2, delay: noDelay }),
-    ).rejects.toThrow(original);
+    ).rejects.toThrow("persistent");
 
     expect(fn).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
   });
@@ -66,7 +65,6 @@ describe("retryAsync", () => {
     // attempt 0 fails → delay 100 * 2^0 = 100
     // attempt 1 fails → delay 100 * 2^1 = 200
     // attempt 2 fails → delay 100 * 2^2 = 400
-    // attempt 3 succeeds
     expect(delays).toEqual([100, 200, 400]);
   });
 
@@ -87,15 +85,14 @@ describe("retryAsync", () => {
   });
 
   it("throws immediately when shouldRetry returns false", async () => {
-    const permanent = new Error("PERMANENT");
-    const fn = vi.fn().mockRejectedValue(permanent);
+    const fn = vi.fn().mockRejectedValue(new Error("PERMANENT"));
 
     await expect(
       retryAsync(fn, {
         delay: noDelay,
         shouldRetry: () => false,
       }),
-    ).rejects.toThrow(permanent);
+    ).rejects.toThrow("PERMANENT");
 
     expect(fn).toHaveBeenCalledTimes(1);
     expect(noDelay).not.toHaveBeenCalled();
@@ -110,5 +107,23 @@ describe("retryAsync", () => {
     ).rejects.toThrow("fail");
 
     expect(fn).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+  });
+
+  it("calls onFailedAttempt on each retry", async () => {
+    const attempts: number[] = [];
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("fail 1"))
+      .mockRejectedValueOnce(new Error("fail 2"))
+      .mockResolvedValue("ok");
+
+    await retryAsync(fn, {
+      delay: noDelay,
+      onFailedAttempt: (error) => {
+        attempts.push(error.attemptNumber);
+      },
+    });
+
+    expect(attempts).toEqual([1, 2]);
   });
 });

@@ -1,10 +1,13 @@
-import { readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { Result, Ticket } from "@isv/domain";
 
 import type { CacheConfig } from "../cache/cache-config.schema.js";
 import { FileCache } from "../cache/file-cache.js";
+import { SqliteDataStore } from "../cache/sqlite-data-store.js";
+import type { SourceFileMeta } from "../cache/sqlite-data-store.js";
 
 import { CachedTicketClient } from "./cached-ticket-client.js";
 import type { TicketClient } from "./client.js";
@@ -12,6 +15,7 @@ import type { TicketClientConfig } from "./client-config.schema.js";
 import { JiraXmlAdapter } from "./jira-xml/index.js";
 import type { TicketPort } from "./port.js";
 import type { TicketQuery } from "./query.schema.js";
+import { SqliteTicketClient } from "./sqlite-ticket-client.js";
 
 // ---------------------------------------------------------------------------
 // File discovery
@@ -204,6 +208,10 @@ class DefaultTicketClient implements TicketClient {
  * source files inside `data/<dataFolderName>/tickets/`, and returns
  * a client instance that can be queried with structured filter criteria.
  *
+ * When a pre-warmed SQLite database exists at `data/<dataFolderName>/project.db`,
+ * the factory returns a `SqliteTicketClient` for fast indexed queries instead
+ * of the file-parsing `DefaultTicketClient`.
+ *
  * @param config - Project-specific configuration (data folder, ticket prefix, raw format).
  * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `Promise` resolving to an initialised `TicketClient`.
@@ -212,6 +220,47 @@ export async function createTicketClient(
   config: TicketClientConfig,
   cacheConfig?: CacheConfig,
 ): Promise<TicketClient> {
+  // Check for a pre-warmed SQLite database
+  const dbPath = resolve("data", config.dataFolderName, "project.db");
+  if (existsSync(dbPath)) {
+    try {
+      // Quick check: does the file contain a tickets table?
+      const probe = new SqliteDataStore(dbPath);
+      const warmupAt = probe.getMeta("warmup_at");
+      probe.close();
+
+      if (warmupAt) {
+        // Collect source file metadata for staleness check
+        const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
+        const files = await discoverFiles(config.dataFolderName, extensions);
+        const sourceFiles: SourceFileMeta[] = [];
+        for (const f of files) {
+          try {
+            const s = await stat(f);
+            sourceFiles.push({
+              path: f,
+              mtime: s.mtime.toISOString(),
+              size: s.size,
+            });
+          } catch {
+            // File disappeared — will trigger staleness
+          }
+        }
+
+        console.error(
+          `Using SQLite data store (warmed up at ${warmupAt})`,
+        );
+        return new SqliteTicketClient(dbPath, sourceFiles);
+      }
+    } catch {
+      // Fall through to file-based client
+    }
+  }
+
+  console.error(
+    "Using file-based adapter (no SQLite database found)",
+  );
+
   const adapter = resolveAdapter(config.rawFormat);
   const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
   const files = await discoverFiles(config.dataFolderName, extensions);

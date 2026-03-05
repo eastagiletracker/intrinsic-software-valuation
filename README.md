@@ -87,6 +87,8 @@ pnpm run check:setup     # or: ./scripts/check-setup.sh
 | **pnpm** | ≥ 9 | `corepack enable` (bundled with Node.js) |
 | **Git** | any recent | `brew install git` or [git-scm.com](https://git-scm.com) |
 
+> **Note:** Node 24 ships with a built-in `node:sqlite` module. The calibration pipeline uses it to persist run state — no external SQLite installation required.
+
 #### GitHub Copilot CLI (LLM adapter)
 
 The Architecture Scanner and Gap Analyzer use GitHub Copilot as the LLM backend. The adapter invokes `gh copilot` on the command line.
@@ -134,8 +136,19 @@ The Status Quo Miner shells out to three CLI tools for code health metrics:
 pnpm install      # install dependencies and link workspace packages
 pnpm run check    # type-check all packages (tsc --build)
 pnpm test         # run unit + boundary tests (Tiers 1–3)
-pnpm run dev:web  # start the web UI from repository root
 ```
+
+### Initialise a project
+
+Before running any pipeline command you need a project workspace under `data/`:
+
+```bash
+pnpm cli -- init --project <slug>   # creates data/<slug>/ with template config
+```
+
+This creates the directory structure (`calibration-runs/`, `git/repos/`, `git/work/`) and a `project-config.json` with `CHANGE-ME` placeholders. Open the config and fill in Jira, Git, LLM, and time-tracking settings for your project.
+
+See `packages/interfaces/cli/README.md` for the full flag reference.
 
 ## Web UI Usage
 
@@ -149,17 +162,31 @@ This command runs `@isv/web` via workspace filtering.
 
 ## CLI Usage
 
-The ISV Engine provides a CLI for both use cases:
+All CLI commands are run from the monorepo root via `pnpm cli`:
 
 ```bash
-# Use Case 2: Calculate ISV for a single ticket
-isv calculate <ticketId>
+# Show help
+pnpm cli -- --help
 
-# Use Case 1: Run historical calibration
-isv calibrate
+# Initialise a new project (creates data/<slug>/ and template config)
+pnpm cli -- init --project my-project
+
+# Calculate ISV for a single ticket (Use Case 2)
+pnpm cli -- calculate PROJ-123 --project my-project
+
+# Run historical calibration (Use Case 1)
+pnpm cli -- calibrate --project my-project
+
+# Calibrate with period and concurrency options
+pnpm cli -- calibrate --project my-project --from 2025-01 --to 2026-02 --concurrency 5
+
+# Check calibration run status
+pnpm cli -- calibrate --status --project my-project
 ```
 
-See `packages/interfaces/cli/README.md` for configuration details.
+The `--` separator between `pnpm cli` and the command flags is required.
+
+See `packages/interfaces/cli/README.md` for the full flag reference.
 
 For conventions and contribution workflow, see:
 

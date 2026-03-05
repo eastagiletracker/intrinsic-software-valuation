@@ -1,8 +1,16 @@
-import { setTimeout } from "node:timers/promises";
+import pRetry from "p-retry";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** p-retry v7 error info passed to onFailedAttempt / shouldRetry callbacks. */
+export interface FailedAttemptError {
+  error: Error;
+  attemptNumber: number;
+  retriesLeft: number;
+  retriesConsumed: number;
+}
 
 /** Options for the generic retry utility. */
 export interface RetryOptions {
@@ -19,10 +27,15 @@ export interface RetryOptions {
    */
   shouldRetry?: (error: unknown) => boolean;
   /**
-   * Injected delay function — defaults to `setTimeout` from `node:timers/promises`.
-   * Override in tests to avoid real waiting.
+   * Injected delay function — defaults to real `setTimeout`.
+   * Override in tests to avoid real waiting. When provided, p-retry's
+   * internal timing is minimised and the custom delay is invoked instead.
    */
   delay?: (ms: number) => Promise<void>;
+  /**
+   * Called on each failed attempt. Receives the attempt info from `p-retry`.
+   */
+  onFailedAttempt?: (error: FailedAttemptError) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,8 +45,7 @@ export interface RetryOptions {
 /**
  * Retry an async function with exponential backoff.
  *
- * Attempt _n_ (1-based) waits `baseDelayMs × backoffFactor^(n−1)` ms
- * before retrying. After all retries are exhausted the **original** error
+ * Backed by `p-retry`. After all retries are exhausted the **original** error
  * is thrown (not wrapped).
  */
 export async function retryAsync<T>(
@@ -44,32 +56,32 @@ export async function retryAsync<T>(
   const baseDelayMs = options?.baseDelayMs ?? 1_000;
   const backoffFactor = options?.backoffFactor ?? 2;
   const shouldRetry = options?.shouldRetry;
-  const wait = options?.delay ?? setTimeout;
+  const customDelay = options?.delay;
 
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-
-      // If a predicate is provided and says "don't retry", throw immediately.
-      if (shouldRetry && !shouldRetry(err)) {
-        throw err;
+  return pRetry(fn, {
+    retries: maxRetries,
+    randomize: false,
+    // When a custom delay is provided (tests), minimise p-retry's own
+    // backoff timing and handle delays ourselves in onFailedAttempt.
+    ...(customDelay
+      ? { minTimeout: 1, maxTimeout: 1, factor: 1 }
+      : { minTimeout: baseDelayMs, factor: backoffFactor }),
+    shouldRetry: shouldRetry
+      ? (info) => shouldRetry((info as FailedAttemptError).error)
+      : undefined,
+    onFailedAttempt: async (info) => {
+      const failedAttempt = info as FailedAttemptError;
+      if (options?.onFailedAttempt) {
+        await options.onFailedAttempt(failedAttempt);
       }
-
-      // If we've exhausted all retries, throw.
-      if (attempt >= maxRetries) {
-        throw err;
+      if (customDelay) {
+        // Skip delay when shouldRetry returned false — p-retry calls
+        // onFailedAttempt before checking shouldRetry, so we guard here.
+        if (shouldRetry && !shouldRetry(failedAttempt.error)) return;
+        const attempt = failedAttempt.attemptNumber - 1; // 0-based
+        const delayMs = baseDelayMs * Math.pow(backoffFactor, attempt);
+        await customDelay(delayMs);
       }
-
-      // Exponential backoff: baseDelayMs × backoffFactor^attempt
-      const delayMs = baseDelayMs * Math.pow(backoffFactor, attempt);
-      await wait(delayMs);
-    }
-  }
-
-  // Unreachable, but satisfies TypeScript.
-  throw lastError;
+    },
+  });
 }

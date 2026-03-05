@@ -338,7 +338,7 @@ describe("ISV Calculation Pipeline — boundary test", () => {
 
     const archEvents = events.filter((e) => e.step === "architecture-scanned");
     expect(archEvents).toHaveLength(1);
-    expect(archEvents[0].detail).toBe("repo 1 of 1");
+    expect(archEvents[0].detail).toBe("repo 1 of 1 [test-repo]");
   });
 
   it("returns full EnrichedIsvResult when run without onProgress", async () => {
