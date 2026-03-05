@@ -70,13 +70,17 @@ function filterTickets(
 ): Ticket[] {
   if (!query) return tickets;
 
+  let result: Ticket[];
+
   switch (query.mode) {
     case "all":
-      return tickets;
+      result = tickets;
+      break;
 
     case "byTicketNumbers": {
       const idSet = new Set(query.ticketIds);
-      return tickets.filter((t) => idSet.has(t.ticketId));
+      result = tickets.filter((t) => idSet.has(t.ticketId));
+      break;
     }
 
     case "withSubtasks": {
@@ -105,9 +109,24 @@ function filterTickets(
         }
       }
 
-      return [...resultMap.values()];
+      result = [...resultMap.values()];
+      break;
     }
   }
+
+  // Apply optional timeframe filter across all modes
+  if (query.timeframe) {
+    const startMs = new Date(query.timeframe.start).getTime();
+    const endMs = new Date(query.timeframe.end).getTime();
+    result = result.filter((t) => {
+      // Use updatedAt as proxy for resolution date (resolved tickets),
+      // or createdAt for unresolved tickets
+      const dateMs = new Date(t.updatedAt).getTime();
+      return dateMs >= startMs && dateMs <= endMs;
+    });
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

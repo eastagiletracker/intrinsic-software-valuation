@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { CalibrationResultSchema } from "@isv/domain";
+import { CalibrationRunOutputSchema } from "@isv/domain";
 import type {
   TicketClient,
   GitClient,
@@ -239,11 +239,109 @@ const mockCalibration: CalibrationPort = {
     data: {
       formulaVersion: "3.4",
       shipRateHoursPerIsv: 4.0,
+      shipRateExclOutliers: 4.0,
       rSquared: 0.95,
+      adjustedRSquared: 0.94,
       dataQualityScore: 1.0,
       sampleSize: 2,
       periodStart: "2025-01-01T00:00:00.000Z",
       periodEnd: "2025-02-01T00:00:00.000Z",
+      factorDiagnostics: [
+        {
+          feature: "A1_Data",
+          partialCorrelation: 0.5,
+          weight: 1.2,
+          pValue: 0.03,
+        },
+        {
+          feature: "A2_UX",
+          partialCorrelation: 0.3,
+          weight: 0.8,
+          pValue: 0.1,
+        },
+        {
+          feature: "B1_Logic",
+          partialCorrelation: 0.4,
+          weight: 1.0,
+          pValue: 0.05,
+        },
+        {
+          feature: "C1_Integration",
+          partialCorrelation: 0.2,
+          weight: 0.5,
+          pValue: 0.2,
+        },
+        {
+          feature: "C2_State",
+          partialCorrelation: 0.1,
+          weight: 0.3,
+          pValue: 0.5,
+        },
+        {
+          feature: "D3_Quality",
+          partialCorrelation: 0.15,
+          weight: 0.4,
+          pValue: 0.3,
+        },
+        {
+          feature: "distributionEntropy",
+          partialCorrelation: 0.35,
+          weight: 0.9,
+          pValue: 0.07,
+        },
+        {
+          feature: "cyclomaticComplexityDelta",
+          partialCorrelation: 0.25,
+          weight: 0.6,
+          pValue: 0.15,
+        },
+        {
+          feature: "changeIntensityScore",
+          partialCorrelation: 0.2,
+          weight: 0.5,
+          pValue: 0.2,
+        },
+      ],
+      reliability: {
+        sampleSize: 2,
+        effectiveSampleSize: 2,
+        standardError: 0.5,
+        confidenceInterval95: { lower: 3.0, upper: 5.0 },
+        coefficientOfVariation: 0.125,
+        dataQualityScore: 1.0,
+        normalityFlag: "pass",
+      },
+      outliers: {
+        outlierCount: 0,
+        outlierPercentage: 0,
+        entries: [],
+      },
+      normalityAssessment: {
+        testName: "shapiro-wilk",
+        testStatistic: 0.95,
+        pValue: 0.6,
+        skewness: 0.1,
+        kurtosis: -0.2,
+        flag: "pass",
+      },
+      formulaValidation: {
+        fitAssessment: "strong",
+        shipRateReliability: "Ship Rate is statistically reliable",
+        dataQualityAssessment: "Data quality is good",
+        factorRanking: [
+          {
+            feature: "A1_Data",
+            absPartialCorrelation: 0.5,
+            isSignificant: true,
+          },
+        ],
+        mismatches: {
+          multiplicativeFactorsWithLowWeight: [],
+          additiveFactorsWithDominantWeight: [],
+          gitMetricsOutperformingIsv: false,
+        },
+        recommendations: [],
+      },
     },
   }),
 };
@@ -253,7 +351,7 @@ const mockCalibration: CalibrationPort = {
 // ---------------------------------------------------------------------------
 
 describe("Historical Calibration Pipeline — boundary test", () => {
-  it("produces schema-valid CalibrationResult", async () => {
+  it("produces schema-valid CalibrationRunOutput", async () => {
     const pipeline = createHistoricalCalibrationPipeline({
       ticketClient: mockTicketClient,
       gitClient: mockGitClient,
@@ -270,9 +368,46 @@ describe("Historical Calibration Pipeline — boundary test", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    const parsed = CalibrationResultSchema.safeParse(result.data);
+    const parsed = CalibrationRunOutputSchema.safeParse(result.data);
     expect(parsed.success).toBe(true);
-    expect(result.data.shipRateHoursPerIsv).toBeGreaterThan(0);
+    expect(result.data.result.shipRateHoursPerIsv).toBeGreaterThan(0);
+    expect(result.data.clusters).toBeDefined();
+    expect(result.data.residuals).toBeDefined();
+    expect(result.data.skippedClusters).toBeDefined();
+  });
+
+  it("passes timeframe to ticket and time-tracking clients", async () => {
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    await pipeline.run({ periodStart: "2025-01", periodEnd: "2025-06" });
+
+    expect(mockTicketClient.getTickets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "all",
+        timeframe: expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+      }),
+    );
+    expect(mockTimeTrackingClient.getTimeSheet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeframe: expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+      }),
+    );
   });
 
   it("calls all services in orchestration order", async () => {
@@ -322,5 +457,36 @@ describe("Historical Calibration Pipeline — boundary test", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe("NO_TICKETS");
+  });
+
+  it("reports skipped clusters with reasons", async () => {
+    const failingGapAnalyzer: GapAnalyzerPort = {
+      analyze: vi.fn().mockResolvedValue({
+        success: false,
+        error: {
+          code: "ANALYSIS_FAILED",
+          message: "Gap analysis failed",
+          source: "gap-analyzer",
+        },
+      }),
+    };
+
+    // Need at least 2 clusters to succeed, but if all fail we get INSUFFICIENT_CLUSTERS
+    const pipeline = createHistoricalCalibrationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      timeTrackingClient: mockTimeTrackingClient,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: failingGapAnalyzer,
+      valuation: mockValuation,
+      calibration: mockCalibration,
+    });
+
+    const result = await pipeline.run({});
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe("INSUFFICIENT_CLUSTERS");
   });
 });
