@@ -197,6 +197,12 @@ export class GitWorktreeAdapter implements GitPort {
 
     try {
       await mkdir(workBasePath, { recursive: true });
+
+      // Clean up stale worktree from a previous interrupted run
+      if (await this.dirExists(worktreeDir)) {
+        await this.cleanupWorktree(repo.repoPath, worktreeDir);
+      }
+
       await execa("git", ["worktree", "add", "--detach", worktreeDir, sha], {
         cwd: repo.repoPath,
       });
