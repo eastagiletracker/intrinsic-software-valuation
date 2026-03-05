@@ -1,5 +1,4 @@
 import type {
-  IsvResult,
   Result,
   IsvFactors,
   RepositoryBaseline,
@@ -14,6 +13,8 @@ import type {
   ValuationPort,
 } from "@isv/services";
 
+import type { EnrichedIsvResult } from "./enriched-result.js";
+import type { RepositoryPipelineResult } from "./enriched-result.js";
 import type { IsvCalculationPipelinePort, IsvCalculationConfig } from "./port.js";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
   async run(
     ticketId: string,
     config: IsvCalculationConfig,
-  ): Promise<Result<IsvResult>> {
+  ): Promise<Result<EnrichedIsvResult>> {
     try {
       const now = new Date().toISOString();
       const projectConfig: ProjectConfig = {
@@ -77,6 +78,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
 
         // Step 4: Architecture Scanner → SystemContext[] (one per repo)
         const repoBaselines: RepositoryBaseline[] = [];
+        const repoPipelineResults: RepositoryPipelineResult[] = [];
         for (let i = 0; i < workingTrees.length; i++) {
           const tree = workingTrees[i];
           const scanResult = await this.architectureScanner.scan(
@@ -97,6 +99,17 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
             systemContext: scanResult.data,
             codeHealthReport: healthReport,
             c2State,
+          });
+
+          repoPipelineResults.push({
+            repositoryId: tree.repositoryId,
+            codeHealthReport: healthReport,
+            systemContext: scanResult.data,
+            c2State,
+            provenance: {
+              commitSha: tree.commitSha,
+              commitDate: now,
+            },
           });
         }
 
@@ -135,7 +148,22 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
 
         // Step 9: Valuation → IsvResult
         const isvResult = this.valuation.calculate(ticketId, factors);
-        return { success: true, data: isvResult };
+
+        // Assemble enriched result
+        const enriched: EnrichedIsvResult = {
+          ticket,
+          pipelineResults: {
+            repositories: repoPipelineResults,
+            effectiveC2,
+            gapAnalysis: gapResult.data,
+          },
+          isvResult,
+          calibration: {
+            storyPoints: ticket.storyPoints,
+          },
+        };
+
+        return { success: true, data: enriched };
       } finally {
         // Cleanup worktrees
         await this.gitClient.releaseAll();
