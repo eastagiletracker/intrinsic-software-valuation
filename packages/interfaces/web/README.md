@@ -18,8 +18,10 @@ Provides an interactive three-panel web interface to the ISV Engine:
 | `src/routes/+layout.svelte` | Root layout with global CSS |
 | `src/routes/api/projects/` | Server route: list available projects from `data/` |
 | `src/routes/api/calculate/` | Server route: trigger ISV calculation pipeline |
-| `src/lib/components/` | Svelte UI components (Sidebar, TicketInput, Card, etc.) |
-| `src/lib/server/` | Server-side utilities (project scanning) |
+| `src/routes/reports/[project]/` | Report index: list saved calibration reports per project |
+| `src/routes/reports/[project]/[report]/` | Report detail: render a single calibration report |
+| `src/lib/components/` | Svelte UI components (Sidebar, TicketInput, Card, Charts, Tooltip, etc.) |
+| `src/lib/server/` | Server-side utilities (project scanning, report reading) |
 | `src/lib/types/` | Shared TypeScript types for API layer |
 | `src/app.css` | Global styles: Tailwind CSS + Bitgrip CI theme |
 | `static/` | Static assets: logo, favicon, fonts |
@@ -57,6 +59,7 @@ Projects are discovered by scanning `data/*/project-config.json`. Each config mu
 
 - **Framework**: SvelteKit (Svelte 5)
 - **Styling**: Tailwind CSS 4 with Bitgrip CI theme
+- **Charting**: layerchart (Svelte chart components based on LayerCake + D3)
 - **Fonts**: Roboto Flex Variable (bundled locally)
 - **Integration**: Server routes import from `@isv/pipelines` and `@isv/domain`
 
@@ -121,3 +124,26 @@ config-based pipeline factory from `@isv/pipelines`, and returns the enriched re
 ```
 
 **Required project config sections:** `jira`, `git`, `llm` — see `packages/pipelines/src/isv-calculation/README.md` for details.
+
+### Calibration Report Routes
+
+#### `GET /reports/[project]`
+
+Lists all saved calibration report files for a project from `data/<project>/calibration/`.
+Each entry includes period, sample size, R², and fit assessment badge.
+
+#### `GET /reports/[project]/[report]`
+
+Renders a single calibration report with sections:
+
+- **Executive Summary** — Ship Rate, R², DQS, sample size
+- **Cluster Scatter Plot** — ISV-derived comparison value vs. actual tracked hours (layerchart)
+- **Residual Distribution** — Predicted hours vs. residuals (layerchart)
+- **Factor Diagnostics** — Per-factor partial correlations, weights, p-values
+- **Outlier Report** — Flagged clusters with reasons
+- **Data Quality & Reliability** — DQS, confidence interval, normality assessment
+- **Recommendations** — Formula validation, factor ranking, mismatches
+
+Includes optional term explanations via hover tooltips and a global show/hide toggle.
+
+Reports are read-only — the UI never modifies saved JSON files.

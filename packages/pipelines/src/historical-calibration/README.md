@@ -12,6 +12,7 @@ Use Case 1: batch calibration across historical tickets. Orchestrates ticket clu
 | `pipeline.ts` | Orchestration implementation + factory |
 | `progress.ts` | `CalibrationProgressEvent`, `CalibrationPhaseId`, `CalibrationProgressCallback` types |
 | `config-factory.ts` | `createHistoricalCalibrationFromConfig` — construct pipeline from project-config.json |
+| `report-writer.ts` | `writeCalibrationReport` — persist `CalibrationRunOutput` as JSON report file |
 | `index.ts` | Public re-exports |
 
 ## How to use
