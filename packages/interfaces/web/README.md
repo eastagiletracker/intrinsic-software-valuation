@@ -136,7 +136,7 @@ Each entry includes period, sample size, R², and fit assessment badge.
 
 Renders a single calibration report with sections:
 
-- **Executive Summary** — Ship Rate, R², DQS, sample size
+- **Executive Summary** — Ship Rate in € per ISV (using legacy daily rate), R², DQS, sample size
 - **Cluster Scatter Plot** — ISV-derived comparison value vs. actual tracked hours (layerchart)
 - **Residual Distribution** — Predicted hours vs. residuals (layerchart)
 - **Factor Diagnostics** — Per-factor partial correlations, weights, p-values
@@ -145,5 +145,6 @@ Renders a single calibration report with sections:
 - **Recommendations** — Formula validation, factor ranking, mismatches
 
 Includes optional term explanations via hover tooltips and a global show/hide toggle.
+The legacy daily rate is read from `project-config.json` → `project.legacyDailyRate` (default: 1,000 €/day for 8 h) and displayed at the top of each report.
 
 Reports are read-only — the UI never modifies saved JSON files.

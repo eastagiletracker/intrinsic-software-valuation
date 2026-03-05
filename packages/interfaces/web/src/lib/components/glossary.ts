@@ -7,7 +7,9 @@
 
 export const glossary: Record<string, string> = {
   "Ship Rate":
-    "Empirical conversion factor expressing hours of development effort per ISV point. Derived from historical regression.",
+    "Empirical conversion factor expressing Euro (€) of development cost per ISV point. Derived from historical regression using the project's legacy daily rate.",
+  "Legacy Daily Rate":
+    "The legacy daily rate (€ per 8-hour working day) used to convert the hours-based Ship Rate into a monetary € per ISV metric. Configured per project; defaults to 1,000 €/day.",
   "R²":
     "Coefficient of determination — proportion of variance in actual hours explained by the ISV model. Values > 0.7 indicate strong fit.",
   "Adjusted R²":

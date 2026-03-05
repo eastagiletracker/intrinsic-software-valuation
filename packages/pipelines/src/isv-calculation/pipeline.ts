@@ -72,6 +72,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
       const now = new Date().toISOString();
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
+        legacyDailyRate: 1000,
       };
 
       // Step 1: Fetch ticket from Jira

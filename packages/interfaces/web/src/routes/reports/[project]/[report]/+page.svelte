@@ -15,6 +15,14 @@
   const clusters = $derived(data.report.clusters);
   const skipped = $derived(data.report.skippedClusters);
 
+  /** Legacy daily rate in € for an 8-hour day (from project config). */
+  const dailyRate = $derived(data.legacyDailyRate);
+  const hourlyRate = $derived(dailyRate / 8);
+
+  /** Convert Ship Rate (h/ISV) → € per ISV using the project daily rate. */
+  const euroPerIsv = $derived(r.shipRateHoursPerIsv * hourlyRate);
+  const euroPerIsvExclOutliers = $derived(r.shipRateExclOutliers * hourlyRate);
+
   function fitBadgeClass(fit: string): string {
     switch (fit) {
       case "strong":
@@ -39,6 +47,14 @@
 
   function formatNumber(n: number, decimals = 3): string {
     return n.toFixed(decimals);
+  }
+
+  /** Format a number as Euro with locale grouping (e.g. 525.00 €). */
+  function formatEuro(n: number, decimals = 2): string {
+    return n.toLocaleString("de-DE", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }) + " €";
   }
 
   // Scatter chart data: ISV score vs actual tracked hours
@@ -95,6 +111,19 @@
   <!-- Report content -->
   <main class="flex-1 overflow-y-auto p-6 space-y-6">
     <!-- ================================================================== -->
+    <!-- Daily Rate Reference (shown at top of report)                      -->
+    <!-- ================================================================== -->
+    <div class="flex items-center gap-6 rounded-xl border border-border bg-surface-blue px-5 py-3 text-sm">
+      <span class="font-semibold text-text">
+        <Tooltip term="Legacy Daily Rate" {showExplanations} />
+      </span>
+      <span class="tabular-nums text-text">{formatEuro(dailyRate, 2)} / day</span>
+      <span class="text-text-secondary">=</span>
+      <span class="tabular-nums text-text">{formatEuro(hourlyRate, 2)} / h</span>
+      <span class="ml-auto text-xs text-text-secondary">(8 h working day)</span>
+    </div>
+
+    <!-- ================================================================== -->
     <!-- Section 1: Executive Summary                                       -->
     <!-- ================================================================== -->
     <Card title="Executive Summary">
@@ -104,7 +133,10 @@
             <Tooltip term="Ship Rate" {showExplanations} />
           </p>
           <p class="text-xl font-bold text-brand">
-            {formatNumber(r.shipRateHoursPerIsv, 2)} <span class="text-xs font-normal text-text-secondary">h / ISV</span>
+            {formatEuro(euroPerIsv)} <span class="text-xs font-normal text-text-secondary">/ ISV</span>
+          </p>
+          <p class="mt-0.5 text-xs text-text-secondary tabular-nums">
+            {formatNumber(r.shipRateHoursPerIsv, 2)} h / ISV
           </p>
         </div>
         <div>
@@ -132,7 +164,10 @@
           <p class="text-xs text-text-secondary">
             <Tooltip term="Ship Rate" {showExplanations} /> (excl. outliers)
           </p>
-          <p class="text-lg font-semibold text-text">{formatNumber(r.shipRateExclOutliers, 2)} h/ISV</p>
+          <p class="text-lg font-semibold text-text">{formatEuro(euroPerIsvExclOutliers)} / ISV</p>
+          <p class="mt-0.5 text-xs text-text-secondary tabular-nums">
+            {formatNumber(r.shipRateExclOutliers, 2)} h / ISV
+          </p>
         </div>
         <div>
           <p class="text-xs text-text-secondary">
