@@ -26,3 +26,24 @@ export interface ApiResponse<T> {
     source?: string;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline progress types (client-side mirrors of @isv/pipelines types)
+// ---------------------------------------------------------------------------
+
+/** Visual status of a single pipeline step in the UI. */
+export type PipelineStepStatus =
+  | "pending"
+  | "in-progress"
+  | "completed"
+  | "error"
+  | "skipped";
+
+/** Client-side representation of a pipeline step for the progress tracker. */
+export interface PipelineStepState {
+  id: string;
+  label: string;
+  status: PipelineStepStatus;
+  aiAssisted?: boolean;
+  detail?: string;
+}

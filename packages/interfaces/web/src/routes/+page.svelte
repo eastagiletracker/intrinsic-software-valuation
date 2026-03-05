@@ -5,10 +5,12 @@
   - Left: Project Selector sidebar (collapsible)
   - Center: ISV Calculator (ticket input + results + sticky ISV bar)
   - Right: Calibration Context panel
+
+  Calculation uses SSE streaming via EventSource for incremental progress.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ProjectEntry, ApiResponse } from '$lib/types/index.js';
+  import type { ProjectEntry, ApiResponse, PipelineStepState, PipelineStepStatus } from '$lib/types/index.js';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import TicketInput from '$lib/components/TicketInput.svelte';
   import TicketInfo from '$lib/components/TicketInfo.svelte';
@@ -19,8 +21,34 @@
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Card from '$lib/components/Card.svelte';
+  import PipelineProgress from '$lib/components/PipelineProgress.svelte';
 
+  // ---------------------------------------------------------------------------
+  // Pipeline step definitions
+  // ---------------------------------------------------------------------------
+
+  const STEP_DEFINITIONS: Array<{ id: string; label: string; aiAssisted?: boolean }> = [
+    { id: 'ticket-fetched', label: 'Fetching ticket' },
+    { id: 'repos-checked-out', label: 'Checking out repositories' },
+    { id: 'code-health-mined', label: 'Analyzing code health' },
+    { id: 'architecture-scanned', label: 'Scanning architecture', aiAssisted: true },
+    { id: 'c2-derived', label: 'Deriving quality state' },
+    { id: 'gap-analyzed', label: 'Analyzing requirements gap', aiAssisted: true },
+    { id: 'factors-assembled', label: 'Assembling ISV factors' },
+    { id: 'isv-calculated', label: 'Calculating ISV score' },
+  ];
+
+  function createInitialSteps(): PipelineStepState[] {
+    return STEP_DEFINITIONS.map(def => ({
+      ...def,
+      status: 'pending' as PipelineStepStatus,
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
   // State
+  // ---------------------------------------------------------------------------
+
   let projects = $state<ProjectEntry[]>([]);
   let activeSlug = $state<string | null>(null);
   let activeProject = $derived(projects.find(p => p.slug === activeSlug) ?? null);
@@ -31,78 +59,220 @@
   // Sidebar collapsed state (AC-UI-1)
   let sidebarCollapsed = $state(false);
 
-  // Result state (will be populated when pipeline is integrated)
+  // Result state
   let ticketData = $state<Record<string, unknown> | null>(null);
   let pipelineResults = $state<Record<string, unknown> | null>(null);
   let isvResult = $state<Record<string, unknown> | null>(null);
   let calibrationData = $state<Record<string, unknown> | null>(null);
 
+  // Streaming state
+  let streaming = $state(false);
+  let pipelineSteps = $state<PipelineStepState[]>([]);
+  let activeEventSource: EventSource | null = null;
+
   // Load projects on mount
-  onMount(async () => {
-    try {
-      const res = await fetch('/api/projects');
-      const body: ApiResponse<ProjectEntry[]> = await res.json();
-      if (body.success && body.data) {
-        projects = body.data;
+  onMount(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/projects');
+        const body: ApiResponse<ProjectEntry[]> = await res.json();
+        if (body.success && body.data) {
+          projects = body.data;
+        }
+      } catch (e) {
+        // Projects failed to load — sidebar will show empty state
+        console.warn('[isv-web] Failed to load projects:', e);
       }
-    } catch (e) {
-      // Projects failed to load — sidebar will show empty state
-      console.warn('[isv-web] Failed to load projects:', e);
-    }
+    })();
+
+    // Cleanup on unmount
+    return () => closeEventSource();
   });
+
+  function closeEventSource() {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+  }
 
   function selectProject(slug: string) {
     // AC-1.3, AC-1.4: Select project, only one active at a time
     // AC-1.5: Reset panels when switching projects
+    closeEventSource();
     activeSlug = slug;
     ticketData = null;
     pipelineResults = null;
     isvResult = null;
     calibrationData = null;
     error = null;
+    streaming = false;
+    pipelineSteps = [];
   }
 
   function toggleSidebar() {
     sidebarCollapsed = !sidebarCollapsed;
   }
 
+  /** Map a step ID to the index in pipelineSteps for status updates. */
+  function updateStepStatus(stepId: string, status: PipelineStepStatus, detail?: string) {
+    pipelineSteps = pipelineSteps.map(s => {
+      if (s.id === stepId) {
+        return { ...s, status, detail: detail ?? s.detail };
+      }
+      return s;
+    });
+  }
+
+  /** Mark all steps up to (but not including) the given step as completed. */
+  function markPreviousStepsCompleted(stepId: string) {
+    const idx = pipelineSteps.findIndex(s => s.id === stepId);
+    if (idx <= 0) return;
+    pipelineSteps = pipelineSteps.map((s, i) => {
+      if (i < idx && s.status !== 'completed') {
+        return { ...s, status: 'completed' as PipelineStepStatus };
+      }
+      return s;
+    });
+  }
+
   async function handleCalculate(ticketId: string) {
     if (!activeSlug) return;
 
+    // Close any previous connection
+    closeEventSource();
+
+    // Reset all state
     loading = true;
+    streaming = true;
     error = null;
     ticketData = null;
     pipelineResults = null;
     isvResult = null;
     calibrationData = null;
+    pipelineSteps = createInitialSteps();
 
-    try {
-      const res = await fetch('/api/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId, projectSlug: activeSlug }),
-      });
-      const body: ApiResponse<unknown> = await res.json();
+    const url = `/api/calculate/stream?ticketId=${encodeURIComponent(ticketId)}&projectSlug=${encodeURIComponent(activeSlug)}`;
+    const es = new EventSource(url);
+    activeEventSource = es;
 
-      if (!body.success && body.error) {
-        error = body.error;
-      } else if (body.success && body.data) {
-        // When pipeline is fully integrated, populate result sections
-        const data = body.data as Record<string, unknown>;
-        ticketData = data.ticket as Record<string, unknown> | null;
-        pipelineResults = data.pipelineResults as Record<string, unknown> | null;
-        isvResult = data.isvResult as Record<string, unknown> | null;
-        calibrationData = data.calibration as Record<string, unknown> | null;
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          step: string;
+          completedSteps: number;
+          totalSteps: number;
+          data?: Record<string, unknown>;
+          detail?: string;
+        };
+
+        // Mark previous steps completed, current step in-progress
+        markPreviousStepsCompleted(data.step);
+        updateStepStatus(data.step, 'completed', data.detail);
+
+        // Map step data to existing result state variables
+        if (data.step === 'ticket-fetched' && data.data?.ticket) {
+          ticketData = data.data.ticket as Record<string, unknown>;
+        } else if (data.step === 'code-health-mined' && data.data?.codeHealthReports) {
+          // Initialize pipelineResults with code health data
+          pipelineResults = {
+            ...(pipelineResults ?? {}),
+            repositories: data.data.codeHealthReports,
+          };
+        } else if (data.step === 'architecture-scanned' && data.data) {
+          // Append architecture results per repo
+          const repos = ((pipelineResults as Record<string, unknown>)?.repositories as unknown[]) ?? [];
+          pipelineResults = {
+            ...(pipelineResults ?? {}),
+            repositories: [...repos, data.data],
+          };
+        } else if (data.step === 'c2-derived' && data.data) {
+          pipelineResults = {
+            ...(pipelineResults ?? {}),
+            effectiveC2: data.data.effectiveC2,
+            repositories: data.data.repositories as unknown[],
+          };
+        } else if (data.step === 'gap-analyzed' && data.data?.gapAnalysis) {
+          pipelineResults = {
+            ...(pipelineResults ?? {}),
+            gapAnalysis: data.data.gapAnalysis,
+          };
+        } else if (data.step === 'isv-calculated' && data.data) {
+          isvResult = data.data.isvResult as Record<string, unknown> | null;
+          calibrationData = data.data.calibration as Record<string, unknown> | null;
+        }
+      } catch (e) {
+        console.warn('[isv-web] Failed to parse SSE message:', e);
       }
-    } catch (e) {
+    };
+
+    es.addEventListener('done', (event) => {
+      try {
+        const result = JSON.parse((event as MessageEvent).data);
+        if (result.success && result.data) {
+          const data = result.data;
+          ticketData = data.ticket ?? ticketData;
+          pipelineResults = data.pipelineResults ?? pipelineResults;
+          isvResult = data.isvResult ?? isvResult;
+          calibrationData = data.calibration ?? calibrationData;
+        }
+      } catch (e) {
+        console.warn('[isv-web] Failed to parse done event:', e);
+      }
+      // Mark all steps completed
+      pipelineSteps = pipelineSteps.map(s => ({
+        ...s,
+        status: s.status === 'error' ? 'error' : 'completed' as PipelineStepStatus,
+      }));
+      loading = false;
+      streaming = false;
+      closeEventSource();
+    });
+
+    es.addEventListener('error', (event) => {
+      // Check if this is a named 'error' SSE event (with data) or a connection error
+      if (event instanceof MessageEvent && event.data) {
+        try {
+          const errData = JSON.parse(event.data);
+          error = {
+            code: errData.code ?? 'PIPELINE_ERROR',
+            message: errData.message ?? 'Pipeline error',
+            source: errData.source ?? 'web-api',
+          };
+        } catch {
+          error = { code: 'PIPELINE_ERROR', message: 'Unknown pipeline error', source: 'web-api' };
+        }
+        // Mark remaining pending steps as skipped
+        pipelineSteps = pipelineSteps.map(s => ({
+          ...s,
+          status: s.status === 'pending' || s.status === 'in-progress' ? 'skipped' as PipelineStepStatus : s.status,
+        }));
+        loading = false;
+        streaming = false;
+        closeEventSource();
+      }
+    });
+
+    // Connection error (not the named 'error' SSE event)
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        // Stream was closed normally — done event handler already ran
+        return;
+      }
+      // Connection drop
       error = {
-        code: 'NETWORK_ERROR',
-        message: e instanceof Error ? e.message : 'Failed to reach the server',
+        code: 'CONNECTION_ERROR',
+        message: 'SSE connection lost. You can retry the calculation.',
         source: 'web-ui',
       };
-    } finally {
+      pipelineSteps = pipelineSteps.map(s => ({
+        ...s,
+        status: s.status === 'pending' || s.status === 'in-progress' ? 'skipped' as PipelineStepStatus : s.status,
+      }));
       loading = false;
-    }
+      streaming = false;
+      closeEventSource();
+    };
   }
 </script>
 
@@ -130,8 +300,11 @@
     <!-- Results area -->
     <!-- AC-UI-2.4: Bottom padding when sticky bar is present so last content item is reachable -->
     <div class="flex-1 space-y-4 p-6" class:pb-24={isvResult && !loading && !error}>
-      {#if loading}
-        <!-- AC-2.4: Skeleton loading states -->
+      <!-- Pipeline progress tracker — shown while streaming -->
+      <PipelineProgress steps={pipelineSteps} visible={loading && streaming} />
+
+      {#if loading && !streaming}
+        <!-- Fallback skeleton loading (non-streaming path) -->
         <Card title="Ticket Information">
           <Skeleton lines={4} />
         </Card>
@@ -147,20 +320,46 @@
         <Card title="ISV Result">
           <Skeleton lines={3} />
         </Card>
-      {:else if error}
+      {/if}
+
+      {#if error}
         <!-- AC-2.5: Error display -->
         <ErrorDisplay code={error.code} message={error.message} source={error.source} />
-      {:else if isvResult}
-        <!-- Full results display -->
-        {#if ticketData}
+      {/if}
+
+      <!-- Incremental result cards — fade in as data arrives -->
+      {#if ticketData}
+        <div class="animate-fade-in">
           <TicketInfo ticket={ticketData as any} />
-        {/if}
-        {#if pipelineResults}
+        </div>
+      {:else if loading}
+        <Card title="Ticket Information">
+          <Skeleton lines={4} />
+        </Card>
+      {/if}
+
+      {#if pipelineResults}
+        <div class="animate-fade-in">
           <PipelineResults pipelineResults={pipelineResults as any} />
-        {/if}
-        <!-- AC-UI-2.7: Full-detail IsvResult card retained in scrollable area -->
-        <IsvResult result={isvResult as any} />
-      {:else}
+        </div>
+      {:else if loading}
+        <Card title="Pipeline Results">
+          <Skeleton lines={5} />
+        </Card>
+      {/if}
+
+      {#if isvResult}
+        <div class="animate-fade-in">
+          <!-- AC-UI-2.7: Full-detail IsvResult card retained in scrollable area -->
+          <IsvResult result={isvResult as any} />
+        </div>
+      {:else if loading}
+        <Card title="ISV Result">
+          <Skeleton lines={3} />
+        </Card>
+      {/if}
+
+      {#if !loading && !error && !isvResult && !ticketData}
         <!-- Initial empty state -->
         <div class="flex flex-1 items-center justify-center py-20">
           <div class="text-center">
@@ -219,3 +418,19 @@
     {/if}
   </aside>
 {/if}
+
+<style>
+  .animate-fade-in {
+    animation: fadeIn 300ms ease-out;
+  }
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
