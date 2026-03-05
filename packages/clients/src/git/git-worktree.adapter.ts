@@ -1,7 +1,8 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { IsoTimestamp, RepositoryRef, ServiceError } from "@isv/domain";
+import type { IsoTimestamp, RepositoryRef } from "@isv/domain";
+import { ServiceException } from "@isv/domain";
 import { execa } from "execa";
 
 import type {
@@ -20,8 +21,8 @@ function gitError(
   code: string,
   message: string,
   context?: unknown,
-): ServiceError {
-  return { code, message, source: "git-client", context };
+): ServiceException {
+  return new ServiceException(code, message, "git-client", context);
 }
 
 // ---------------------------------------------------------------------------

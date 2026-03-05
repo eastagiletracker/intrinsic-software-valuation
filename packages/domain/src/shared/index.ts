@@ -43,6 +43,8 @@ export {
   type ServiceError,
 } from "./service-error.schema.js";
 
+export { ServiceException } from "./service-exception.js";
+
 export { createResultSchema, type Result } from "./result.schema.js";
 
 export {

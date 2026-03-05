@@ -1,7 +1,8 @@
 import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { IsoTimestamp, ServiceError } from "@isv/domain";
+import type { IsoTimestamp } from "@isv/domain";
+import { ServiceException } from "@isv/domain";
 
 import type { CacheConfig } from "../cache/cache-config.schema.js";
 import { FileCache } from "../cache/file-cache.js";
@@ -26,8 +27,8 @@ function gitError(
   code: string,
   message: string,
   context?: unknown,
-): ServiceError {
-  return { code, message, source: "git-client", context };
+): ServiceException {
+  return new ServiceException(code, message, "git-client", context);
 }
 
 // ---------------------------------------------------------------------------

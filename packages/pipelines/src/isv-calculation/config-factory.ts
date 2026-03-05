@@ -183,8 +183,8 @@ export async function createIsvCalculationFromConfig(
 
     return { success: true, data: { pipeline, cleanup } };
   } catch (err) {
-    // Git client and other adapters throw ServiceError objects (plain objects),
-    // not Error instances. Extract the message from known shapes.
+    // Git client throws ServiceException (extends Error) with structured
+    // code/source fields. The fallback branches handle any unexpected shapes.
     const message =
       err instanceof Error
         ? err.message
