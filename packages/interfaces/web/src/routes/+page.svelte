@@ -70,6 +70,14 @@
   let pipelineSteps = $state<PipelineStepState[]>([]);
   let activeEventSource: EventSource | null = null;
 
+  // Session-storage keys for state persistence across HMR / page reloads.
+  // In Vite dev mode, any file edit triggers a full page reload, which loses
+  // all Svelte $state. We persist the active project selection and detect
+  // interrupted calculations so the user gets a clear message instead of
+  // silently resetting to the "Select a Project" screen.
+  const STORAGE_SLUG = 'isv-active-slug';
+  const STORAGE_CALC = 'isv-pending-calc';
+
   // Load projects on mount
   onMount(() => {
     (async () => {
@@ -82,6 +90,23 @@
       } catch (e) {
         // Projects failed to load — sidebar will show empty state
         console.warn('[isv-web] Failed to load projects:', e);
+      }
+
+      // Restore active project from sessionStorage (survives HMR page reloads)
+      const storedSlug = sessionStorage.getItem(STORAGE_SLUG);
+      if (storedSlug && projects.some(p => p.slug === storedSlug)) {
+        activeSlug = storedSlug;
+      }
+
+      // Detect interrupted calculation (HMR reload killed a pending SSE stream)
+      const pendingCalc = sessionStorage.getItem(STORAGE_CALC);
+      if (pendingCalc) {
+        sessionStorage.removeItem(STORAGE_CALC);
+        error = {
+          code: 'CALCULATION_INTERRUPTED',
+          message: 'A running ISV calculation was interrupted by a page reload (likely triggered by a file save in your editor). Please re-run the calculation.',
+          source: 'web-ui',
+        };
       }
     })();
 
@@ -101,6 +126,7 @@
     // AC-1.5: Reset panels when switching projects
     closeEventSource();
     activeSlug = slug;
+    sessionStorage.setItem(STORAGE_SLUG, slug);
     ticketData = null;
     pipelineResults = null;
     isvResult = null;
@@ -151,6 +177,9 @@
     isvResult = null;
     calibrationData = null;
     pipelineSteps = createInitialSteps();
+
+    // Mark calculation as pending so reloads can detect the interruption
+    sessionStorage.setItem(STORAGE_CALC, new Date().toISOString());
 
     const url = `/api/calculate/stream?ticketId=${encodeURIComponent(ticketId)}&projectSlug=${encodeURIComponent(activeSlug)}`;
     const es = new EventSource(url);
@@ -224,6 +253,7 @@
         ...s,
         status: s.status === 'error' ? 'error' : 'completed' as PipelineStepStatus,
       }));
+      sessionStorage.removeItem(STORAGE_CALC);
       loading = false;
       streaming = false;
       closeEventSource();
@@ -247,6 +277,7 @@
           ...s,
           status: s.status === 'pending' || s.status === 'in-progress' ? 'skipped' as PipelineStepStatus : s.status,
         }));
+        sessionStorage.removeItem(STORAGE_CALC);
         loading = false;
         streaming = false;
         closeEventSource();
@@ -269,6 +300,7 @@
         ...s,
         status: s.status === 'pending' || s.status === 'in-progress' ? 'skipped' as PipelineStepStatus : s.status,
       }));
+      sessionStorage.removeItem(STORAGE_CALC);
       loading = false;
       streaming = false;
       closeEventSource();

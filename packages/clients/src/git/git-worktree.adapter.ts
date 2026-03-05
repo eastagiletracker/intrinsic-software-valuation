@@ -198,6 +198,11 @@ export class GitWorktreeAdapter implements GitPort {
     try {
       await mkdir(workBasePath, { recursive: true });
 
+      // Prune stale worktree registrations (e.g. after manual rm -rf of work/)
+      await execa("git", ["worktree", "prune"], { cwd: repo.repoPath }).catch(
+        () => {},
+      );
+
       // Clean up stale worktree from a previous interrupted run
       if (await this.dirExists(worktreeDir)) {
         await this.cleanupWorktree(repo.repoPath, worktreeDir);
