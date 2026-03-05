@@ -33,10 +33,10 @@
   class:w-14={collapsed}
 >
   <!-- Logo header -->
-  <div class="flex items-center border-b border-white/10" class:justify-center={collapsed} class:px-5={!collapsed} class:py-5={true} class:px-2={collapsed}>
+  <div class="flex items-center border-b border-white/10 py-5" class:justify-center={collapsed} class:px-5={!collapsed} class:px-2={collapsed}>
     {#if collapsed}
       <!-- AC-UI-1.3: Compact brackets logo in collapsed state -->
-      <img src="/BITGRIP_Brackets_White_sRGB.png" alt="Bitgrip" class="h-6" />
+      <img src="/BITGRIP_Brackets_White_sRGB.png" alt="Bitgrip brackets logo" class="h-6" />
     {:else}
       <img src="/logo_bitgrip.png" alt="Bitgrip" class="h-6" />
       <span class="ml-3 text-xs font-light tracking-wider text-white/60 uppercase">ISV Engine</span>
@@ -44,7 +44,7 @@
   </div>
 
   <!-- Project list -->
-  <nav class="flex-1 overflow-y-auto" class:px-3={!collapsed} class:px-1={collapsed} class:py-4={true}>
+  <nav class="flex-1 overflow-y-auto py-4" class:px-3={!collapsed} class:px-1={collapsed}>
     {#if !collapsed}
       <h2 class="mb-3 px-2 text-xs font-medium tracking-wider text-white/50 uppercase">Projects</h2>
     {/if}
