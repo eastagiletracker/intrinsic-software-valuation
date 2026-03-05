@@ -4,22 +4,44 @@
  * ISV Engine CLI — entry point.
  *
  * Usage:
- *   isv calculate <ticketId>  — Calculate ISV for a single ticket
+ *   isv calculate <ticketId> --project <slug>  — Calculate ISV for a single ticket
  *   isv calibrate --project <slug> [--from <YYYY-MM>] [--to <YYYY-MM>] [--run-id <id>]
  *                 [--concurrency <n>] [--llm-concurrency <n>]
  *   isv calibrate --status --project <slug> [--run-id <id>]
  *   isv init --project <slug>
+ *
+ * Exit codes:
+ *   0 — success
+ *   1 — user error (missing arguments, bad usage)
+ *   2 — pipeline / runtime error
  */
 
-import { readFile, mkdir, writeFile, stat, access } from "node:fs/promises";
+import { readFile, mkdir, writeFile, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { CalibrationProgressEvent } from "@isv/pipelines";
+import type {
+  PipelineProgressEvent,
+  CalibrationProgressEvent,
+} from "@isv/pipelines";
 import {
+  createIsvCalculationFromConfig,
   createHistoricalCalibrationFromConfig,
   SqliteRunStore,
 } from "@isv/pipelines";
+
+// ---------------------------------------------------------------------------
+// Monorepo root resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the monorepo root from the CLI package location.
+ * packages/interfaces/cli/src/main.ts → 4 levels up to reach the root.
+ * Uses import.meta.dirname so the result is stable regardless of process.cwd().
+ */
+function monorepoRoot(): string {
+  return join(import.meta.dirname, "..", "..", "..", "..");
+}
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -255,44 +277,76 @@ async function runCalibrateStatus(args: string[]): Promise<void> {
 // Help texts
 // ---------------------------------------------------------------------------
 
-async function runCalibrate(args: string[]): Promise<void> {
-  // AC-7.3: --status flag
-  if (hasFlag(args, "--status")) {
-    return runCalibrateStatus(args);
-  }
+const GENERAL_HELP = `ISV Engine CLI
 
-  const projectSlug = findFlag(args, "--project");
-  if (!projectSlug) {
+Usage:
+  isv calculate <ticketId> --project <slug> [options]
+  isv calibrate --project <slug> [options]
+  isv calibrate --status --project <slug> [--run-id <id>]
+  isv init --project <slug>
+  isv --help
+
+Commands:
+  calculate   Calculate the ISV for a single ticket
+  calibrate   Run historical calibration for a project
+  init        Initialise project structure
+
+Global Options:
+  --help      Show help (use with a command for command-specific help)
+  --json      Suppress stderr progress output (stdout JSON only)
+`;
+
+const CALCULATE_HELP = `isv calculate — Calculate the ISV for a single ticket
+
+Usage:
+  isv calculate <ticketId> --project <slug> [options]
+
+Arguments:
+  <ticketId>              The ticket ID to calculate ISV for (required)
+
+Options:
+  --project <slug>        Project slug (required) — resolves to data/<slug>/project-config.json
+  --json                  Suppress stderr progress output (stdout JSON only)
+  --help                  Show this help message
+`;
+
+const CALIBRATE_HELP = `isv calibrate — Run historical calibration for a project
+
+Usage:
+  isv calibrate --project <slug> [options]
+
+Options:
+  --project <slug>            Project slug (required) — resolves to data/<slug>/project-config.json
+  --from <YYYY-MM>            Start of calibration period (defaults to pipeline default)
+  --to <YYYY-MM>              End of calibration period (defaults to pipeline default)
+  --run-id <id>               Resume a specific run
+  --concurrency <n>           Cluster concurrency (default: 3)
+  --llm-concurrency <n>       LLM concurrency (default: 2)
+  --status                    Show calibration run status instead of running
+  --d3-quality-floor <1|2|3>  D3 quality floor override
+  --min-confidence <number>   Minimum cluster confidence to include
+  --json                      Suppress stderr progress output (stdout JSON only)
+  --help                      Show this help message
+`;
+
+// ---------------------------------------------------------------------------
+// Config loading
+// ---------------------------------------------------------------------------
+
+async function loadProjectConfig(
+  projectSlug: string,
+): Promise<Record<string, unknown>> {
+  const cwd = monorepoRoot();
+  const configPath = join(cwd, "data", projectSlug, "project-config.json");
+  let content: string;
+  try {
+    content = await readFile(configPath, "utf-8");
+  } catch {
     console.error(
-      "Usage: isv calibrate --project <slug> [--from <YYYY-MM>] [--to <YYYY-MM>] [--run-id <id>] [--concurrency <n>] [--llm-concurrency <n>]",
+      `Error: Could not read project config for "${projectSlug}" at ${configPath}`,
     );
-    process.exit(1);
+    process.exit(2);
   }
-
-  // AC-8.6: Check that isv init has been run
-  const cwd = process.cwd();
-  const projectDir = resolve(cwd, "data", projectSlug);
-  if (!existsSync(projectDir) || !existsSync(join(projectDir, "project-config.json"))) {
-    console.error(
-      `Error: Project "${projectSlug}" has not been initialised. Run 'isv init --project ${projectSlug}' first.`,
-    );
-    process.exit(1);
-  }
-
-  const periodStart = findFlag(args, "--from");
-  const periodEnd = findFlag(args, "--to");
-  const runId = findFlag(args, "--run-id");
-  const concurrencyStr = findFlag(args, "--concurrency");
-  const llmConcurrencyStr = findFlag(args, "--llm-concurrency");
-
-  const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 3;
-  const llmConcurrency = llmConcurrencyStr
-    ? parseInt(llmConcurrencyStr, 10)
-    : 2;
-
-  // Load project config
-  const configPath = resolve(cwd, "data", projectSlug, "project-config.json");
-  let rawConfig: Record<string, unknown>;
   try {
     return JSON.parse(content) as Record<string, unknown>;
   } catch {
@@ -356,35 +410,8 @@ async function runCalculate(args: string[]): Promise<void> {
         );
       };
 
-  // Generate effective run ID
-  const effectiveRunId =
-    runId ??
-    `cal-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${Math.random().toString(36).slice(2, 8)}`;
-
-  // Create RunStore for this run
-  const storePath = join(
-    cwd,
-    "data",
-    projectSlug,
-    "calibration-runs",
-    effectiveRunId,
-    "store.db",
-  );
-
-  // AC-7.5: SIGINT handler — inform user
-  let sigintReceived = false;
-  const sigintHandler = () => {
-    if (!sigintReceived) {
-      sigintReceived = true;
-      console.log("\nPausing — waiting for in-flight clusters to complete…");
-    }
-  };
-  process.on("SIGINT", sigintHandler);
-
   try {
-    console.log(`Starting calibration run: ${effectiveRunId}`);
-    console.log(`  Concurrency: ${concurrency}  |  LLM Concurrency: ${llmConcurrency}`);
-    console.log("");
+    const result = await pipeline.run(ticketId, { d3QualityFloor }, onProgress);
 
     if (!result.success) {
       console.error(JSON.stringify(result.error, null, 2));
@@ -403,6 +430,11 @@ async function runCalculate(args: string[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function runCalibrate(args: string[]): Promise<void> {
+  // AC-7.3: --status flag
+  if (hasFlag(args, "--status")) {
+    return runCalibrateStatus(args);
+  }
+
   if (hasFlag(args, "--help")) {
     console.error(CALIBRATE_HELP);
     process.exit(0);
@@ -417,7 +449,16 @@ async function runCalibrate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // AC-8.6: Check that isv init has been run
   const cwd = monorepoRoot();
+  const projectDir = resolve(cwd, "data", projectSlug);
+  if (!existsSync(projectDir) || !existsSync(join(projectDir, "project-config.json"))) {
+    console.error(
+      `Error: Project "${projectSlug}" has not been initialised. Run 'isv init --project ${projectSlug}' first.`,
+    );
+    process.exit(1);
+  }
+
   const projectConfig = await loadProjectConfig(projectSlug);
 
   // Create pipeline from config
@@ -433,8 +474,15 @@ async function runCalibrate(args: string[]): Promise<void> {
   const { pipeline, cleanup } = factoryResult.data;
 
   // Optional flags
-  const periodStart = findFlag(args, "--period-start");
-  const periodEnd = findFlag(args, "--period-end");
+  const periodStart = findFlag(args, "--from");
+  const periodEnd = findFlag(args, "--to");
+  const runId = findFlag(args, "--run-id");
+  const concurrencyStr = findFlag(args, "--concurrency");
+  const llmConcurrencyStr = findFlag(args, "--llm-concurrency");
+  const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 3;
+  const llmConcurrency = llmConcurrencyStr
+    ? parseInt(llmConcurrencyStr, 10)
+    : 2;
   const rawD3Floor = findFlag(args, "--d3-quality-floor");
   const d3QualityFloor =
     rawD3Floor === "1" || rawD3Floor === "2" || rawD3Floor === "3"
@@ -443,6 +491,11 @@ async function runCalibrate(args: string[]): Promise<void> {
   const rawMinConfidence = findFlag(args, "--min-confidence");
   const minConfidence =
     rawMinConfidence !== undefined ? Number(rawMinConfidence) : undefined;
+
+  // Generate effective run ID
+  const effectiveRunId =
+    runId ??
+    `cal-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Progress callback — render to stderr
   const onProgress = jsonOnly
@@ -458,11 +511,27 @@ async function runCalibrate(args: string[]): Promise<void> {
         );
       };
 
+  // AC-7.5: SIGINT handler — inform user
+  let sigintReceived = false;
+  const sigintHandler = () => {
+    if (!sigintReceived) {
+      sigintReceived = true;
+      console.log("\nPausing — waiting for in-flight clusters to complete…");
+    }
+  };
+  process.on("SIGINT", sigintHandler);
+
   try {
+    console.log(`Starting calibration run: ${effectiveRunId}`);
+    console.log(`  Concurrency: ${concurrency}  |  LLM Concurrency: ${llmConcurrency}`);
+    console.log("");
+
     const result = await pipeline.run({
       projectSlug,
-      periodStart,
-      periodEnd,
+      periodStart: periodStart ?? undefined,
+      periodEnd: periodEnd ?? undefined,
+      d3QualityFloor,
+      minConfidence,
       runId: effectiveRunId,
       concurrency,
       llmConcurrency,
@@ -528,32 +597,9 @@ switch (command) {
     break;
   }
 
-  default:
-    console.log("ISV Engine CLI v0.0.1");
-    console.log("");
-    console.log("Commands:");
-    console.log(
-      "  isv calculate <ticketId>             Calculate ISV for a single ticket",
-    );
-    console.log(
-      "  isv calibrate --project <slug>       Run historical calibration",
-    );
-    console.log(
-      "  isv calibrate --status --project <slug>  Show calibration run status",
-    );
-    console.log(
-      "  isv init --project <slug>            Initialise project structure",
-    );
-    console.log("");
-    console.log("Calibrate options:");
-    console.log("  --from <YYYY-MM>                     Period start");
-    console.log("  --to <YYYY-MM>                       Period end");
-    console.log("  --run-id <id>                        Resume a specific run");
-    console.log("  --concurrency <n>                    Cluster concurrency (default: 3)");
-    console.log("  --llm-concurrency <n>                LLM concurrency (default: 2)");
-    console.log("");
-    console.log("Options:");
-    console.log("  --help                               Show this help message");
+  case "--help":
+  case undefined: {
+    console.error(GENERAL_HELP);
     break;
   }
 
