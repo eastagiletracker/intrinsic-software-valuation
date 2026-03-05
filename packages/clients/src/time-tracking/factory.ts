@@ -1,16 +1,20 @@
-import { readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { TimeEntry, TimeSheet } from "@isv/domain";
 
 import type { CacheConfig } from "../cache/cache-config.schema.js";
 import { FileCache } from "../cache/file-cache.js";
+import { SqliteDataStore } from "../cache/sqlite-data-store.js";
+import type { SourceFileMeta } from "../cache/sqlite-data-store.js";
 
 import { CachedTimeTrackingClient } from "./cached-time-tracking-client.js";
 import type { TimeTrackingClient } from "./client.js";
 import type { TimeTrackingClientConfig } from "./client-config.schema.js";
 import type { TimeTrackingPort } from "./port.js";
 import type { TimeTrackingQuery } from "./query.schema.js";
+import { SqliteTimeTrackingClient } from "./sqlite-time-tracking-client.js";
 import { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
 
 // ---------------------------------------------------------------------------
@@ -210,6 +214,9 @@ class DefaultTimeTrackingClient implements TimeTrackingClient {
  * source files inside `data/<dataFolderName>/time-tracking/`, and returns
  * a client instance that can be queried with structured filter criteria.
  *
+ * When a pre-warmed SQLite database exists at `data/<dataFolderName>/project.db`,
+ * the factory returns a `SqliteTimeTrackingClient` for fast indexed queries.
+ *
  * @param config - Project-specific configuration (ticket prefix, data folder, raw format).
  * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `Promise` resolving to an initialised `TimeTrackingClient`.
@@ -218,6 +225,46 @@ export async function createTimeTrackingClient(
   config: TimeTrackingClientConfig,
   cacheConfig?: CacheConfig,
 ): Promise<TimeTrackingClient> {
+  // Check for a pre-warmed SQLite database
+  const dbPath = resolve("data", config.dataFolderName, "project.db");
+  if (existsSync(dbPath)) {
+    try {
+      const probe = new SqliteDataStore(dbPath);
+      const warmupAt = probe.getMeta("warmup_at");
+      probe.close();
+
+      if (warmupAt) {
+        // Collect source file metadata for staleness check
+        const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
+        const files = await discoverFiles(config.dataFolderName, extensions);
+        const sourceFiles: SourceFileMeta[] = [];
+        for (const f of files) {
+          try {
+            const s = await stat(f);
+            sourceFiles.push({
+              path: f,
+              mtime: s.mtime.toISOString(),
+              size: s.size,
+            });
+          } catch {
+            // File disappeared — will trigger staleness
+          }
+        }
+
+        console.error(
+          `Using SQLite data store (warmed up at ${warmupAt})`,
+        );
+        return new SqliteTimeTrackingClient(dbPath, sourceFiles);
+      }
+    } catch {
+      // Fall through to file-based client
+    }
+  }
+
+  console.error(
+    "Using file-based adapter (no SQLite database found)",
+  );
+
   const adapter = resolveAdapter(config.rawFormat);
   const extensions = FORMAT_EXTENSIONS[config.rawFormat] ?? [];
   const files = await discoverFiles(config.dataFolderName, extensions);
