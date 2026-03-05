@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { FactorDiagnosticSchema } from "./factor-diagnostic.schema.js";
+import { RegressionFeatureDiagnosticSchema } from "./regression-feature-diagnostic.schema.js";
+import { ReliabilitySummarySchema } from "./reliability-summary.schema.js";
+import { OutlierReportSchema } from "./outlier-report.schema.js";
+import { NormalityAssessmentSchema } from "./normality-assessment.schema.js";
+import { FormulaValidationSchema } from "./formula-validation.schema.js";
 
 /**
  * Result of a historical calibration run.
@@ -9,10 +13,8 @@ import { FactorDiagnosticSchema } from "./factor-diagnostic.schema.js";
  * indicators, the formula version used, and per-cluster results for
  * auditing and drill-down.
  *
- * Optionally includes factor-level diagnostics when advanced analysis
- * is enabled. Diagnostics validate the static ISV formula against
- * empirical data — they inform human decisions about formula revisions
- * but never trigger automatic adjustments.
+ * Includes mandatory factor-level diagnostics, reliability summary,
+ * outlier report, normality assessment, and formula validation.
  *
  * The calibration target is R² > 0.7 between ISV scores and actual
  * invested hours, including change intensity, complexity, and
@@ -34,6 +36,13 @@ export const CalibrationResultSchema = z
         "Empirical conversion rate: average hours per ISV point. " +
           "Primary output used for budget and capacity planning.",
       ),
+    shipRateExclOutliers: z
+      .number()
+      .positive()
+      .describe(
+        "Ship Rate after excluding outlier clusters. " +
+          "May equal shipRateHoursPerIsv when there are no outliers.",
+      ),
     rSquared: z
       .number()
       .min(0)
@@ -41,6 +50,13 @@ export const CalibrationResultSchema = z
       .describe(
         "R² correlation coefficient of the regression model. " +
           "Target is > 0.7 for a stable empirical correlation.",
+      ),
+    adjustedRSquared: z
+      .number()
+      .max(1)
+      .describe(
+        "Adjusted R² accounting for the number of features. " +
+          "More conservative than R² for multivariate models.",
       ),
     dataQualityScore: z
       .number()
@@ -62,17 +78,29 @@ export const CalibrationResultSchema = z
       .string()
       .describe("End of the calibration period (ISO 8601 date or timestamp)"),
     factorDiagnostics: z
-      .array(FactorDiagnosticSchema)
-      .optional()
+      .array(RegressionFeatureDiagnosticSchema)
       .describe(
-        "Optional advanced diagnostics: per-factor partial correlations, weights, and p-values. " +
-          "Present only when advanced diagnostics mode is enabled. " +
+        "Mandatory per-feature diagnostics: partial correlations, weights, and p-values " +
+          "for all 6 ISV factors and 3 Git metrics. " +
           "Informs human review of formula validity — never triggers automatic formula changes.",
       ),
+    reliability: ReliabilitySummarySchema.describe(
+      "Confidence and reliability summary for the Ship Rate estimate",
+    ),
+    outliers: OutlierReportSchema.describe(
+      "Outlier detection report from calibration regression",
+    ),
+    normalityAssessment: NormalityAssessmentSchema.describe(
+      "Normality assessment of the regression residuals",
+    ),
+    formulaValidation: FormulaValidationSchema.describe(
+      "Structured formula validation output",
+    ),
   })
   .describe(
     "Historical calibration result: formula version, Ship Rate, R² correlation, " +
-      "data quality score, sample size, and optional factor-level diagnostics. " +
+      "data quality score, sample size, factor-level diagnostics, reliability, " +
+      "outlier report, normality assessment, and formula validation. " +
       "Translates abstract ISV points into empirically grounded time estimates.",
   );
 

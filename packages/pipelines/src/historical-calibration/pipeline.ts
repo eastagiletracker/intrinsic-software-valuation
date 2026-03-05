@@ -1,5 +1,6 @@
 import type {
-  CalibrationResult,
+  CalibrationRunOutput,
+  ClusterResidual,
   Result,
   ShipUnitCluster,
   IsvFactors,
@@ -25,6 +26,93 @@ import type {
 } from "./port.js";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the last moment of the last day of the given month.
+ * Uses the Date.UTC day-0 trick: month+1, day 0 → last day of current month.
+ */
+function lastMomentOfMonth(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month + 1, 0, 23, 59, 59));
+}
+
+/**
+ * Resolve periodStart/periodEnd from config, defaulting to an 18-month
+ * window ending at the current month.
+ */
+function resolvePeriod(config: HistoricalCalibrationConfig): {
+  start: string;
+  end: string;
+} {
+  const now = new Date();
+  const endDate = config.periodEnd
+    ? new Date(config.periodEnd + "-01T00:00:00.000Z")
+    : lastMomentOfMonth(now.getUTCFullYear(), now.getUTCMonth());
+
+  const startDate = config.periodStart
+    ? new Date(config.periodStart + "-01T00:00:00.000Z")
+    : new Date(
+        Date.UTC(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth() - 18,
+          1,
+          0,
+          0,
+          0,
+        ),
+      );
+
+  // For the end, use last moment of the last day of the month
+  const endOfMonth = config.periodEnd
+    ? lastMomentOfMonth(endDate.getUTCFullYear(), endDate.getUTCMonth())
+    : endDate;
+
+  return {
+    start: startDate.toISOString(),
+    end: endOfMonth.toISOString(),
+  };
+}
+
+/**
+ * Compute Shannon entropy of lines-changed-per-file distribution.
+ */
+function computeDistributionEntropy(
+  hotspots: Array<{ file: string; changeCount: number }>,
+): number {
+  if (hotspots.length === 0) return 0;
+  const values = hotspots.map((h) => h.changeCount);
+  const total = values.reduce((a, b) => a + b, 0);
+  if (total === 0) return 0;
+
+  let entropy = 0;
+  for (const v of values) {
+    if (v > 0) {
+      const p = v / total;
+      entropy -= p * Math.log2(p);
+    }
+  }
+  return entropy;
+}
+
+/**
+ * Compute change intensity score (0-1).
+ */
+function computeChangeIntensityScore(
+  locTotal: number,
+  entropy: number,
+  complexityDelta: number,
+): number {
+  const locNorm = Math.min(locTotal / 10000, 1);
+  const entropyNorm = Math.min(entropy / 5, 1);
+  const complexityNorm = Math.min(Math.abs(complexityDelta) / 50, 1);
+  return Math.max(
+    0,
+    Math.min(1, 0.4 * locNorm + 0.3 * entropyNorm + 0.3 * complexityNorm),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline implementation
 // ---------------------------------------------------------------------------
 
@@ -45,16 +133,20 @@ class HistoricalCalibrationPipeline
 
   async run(
     config: HistoricalCalibrationConfig,
-  ): Promise<Result<CalibrationResult>> {
+  ): Promise<Result<CalibrationRunOutput>> {
     try {
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
       };
       const minConfidence = config.minConfidence ?? 0.7;
 
-      // Step 1: Load all tickets
+      // Resolve period
+      const period = resolvePeriod(config);
+
+      // Step 1: Load tickets (with optional timeframe filter)
       const ticketResult = await this.ticketClient.getTickets({
         mode: "all",
+        timeframe: { start: period.start, end: period.end },
       });
       if (!ticketResult.success) return ticketResult;
       const tickets = ticketResult.data;
@@ -73,8 +165,10 @@ class HistoricalCalibrationPipeline
       // Step 2: Cluster tickets
       const ticketClusters = this.calibration.clusterTickets(tickets);
 
-      // Step 3: Load time entries
-      const timeSheet = await this.timeTrackingClient.getTimeSheet();
+      // Step 3: Load time entries (with timeframe filter)
+      const timeSheet = await this.timeTrackingClient.getTimeSheet({
+        timeframe: { start: period.start, end: period.end },
+      });
       const timeEntries = timeSheet.entries;
 
       // Step 4: Attribute time to clusters
@@ -88,7 +182,7 @@ class HistoricalCalibrationPipeline
 
       // Step 6: For each cluster, run fact finding + gap analysis + valuation
       const shipUnitClusters: ShipUnitCluster[] = [];
-      const skippedClusters: string[] = [];
+      const skippedClusters: Array<{ clusterId: string; reason: string }> = [];
 
       for (const [clusterId, clusterTickets] of ticketClusters) {
         try {
@@ -96,7 +190,7 @@ class HistoricalCalibrationPipeline
           // T0 derivation: use ticket creation date as proxy
           const timestampT0 = primaryTicket.createdAt;
 
-          // Checkout repos at T0
+          // Checkout repos at T0 (uses per-cluster T0 timestamp, not period window)
           const trees = await this.gitClient.checkoutAll(timestampT0);
 
           try {
@@ -106,7 +200,10 @@ class HistoricalCalibrationPipeline
               .map((id: string) => trees.get(id)!);
 
             if (workingTrees.length === 0) {
-              skippedClusters.push(clusterId);
+              skippedClusters.push({
+                clusterId,
+                reason: "No working trees available for checkout",
+              });
               continue;
             }
 
@@ -116,7 +213,10 @@ class HistoricalCalibrationPipeline
               timestampT0,
             );
             if (!mineResult.success) {
-              skippedClusters.push(clusterId);
+              skippedClusters.push({
+                clusterId,
+                reason: `Status Quo Miner failed: ${mineResult.error.message}`,
+              });
               continue;
             }
 
@@ -126,7 +226,10 @@ class HistoricalCalibrationPipeline
               this.llmClient,
             );
             if (!scanResult.success) {
-              skippedClusters.push(clusterId);
+              skippedClusters.push({
+                clusterId,
+                reason: `Architecture Scanner failed: ${scanResult.error.message}`,
+              });
               continue;
             }
 
@@ -154,13 +257,19 @@ class HistoricalCalibrationPipeline
               this.llmClient,
             );
             if (!gapResult.success) {
-              skippedClusters.push(clusterId);
+              skippedClusters.push({
+                clusterId,
+                reason: `Gap Analyzer failed: ${gapResult.error.message}`,
+              });
               continue;
             }
 
             // Confidence gate
             if (gapResult.data.meta.confidenceScore < minConfidence) {
-              skippedClusters.push(clusterId);
+              skippedClusters.push({
+                clusterId,
+                reason: `Low confidence: ${gapResult.data.meta.confidenceScore} < ${minConfidence}`,
+              });
               continue;
             }
 
@@ -187,6 +296,10 @@ class HistoricalCalibrationPipeline
             let locAdded = 0;
             let locDeleted = 0;
             let filesChanged = 0;
+            let allHotspots: Array<{
+              file: string;
+              changeCount: number;
+            }> = [];
             for (const tree of workingTrees) {
               try {
                 const stats = await this.gitClient.logStats(
@@ -196,10 +309,31 @@ class HistoricalCalibrationPipeline
                 locAdded += stats.linesAdded;
                 locDeleted += stats.linesDeleted;
                 filesChanged += stats.filesChanged;
+                if (stats.hotspots) {
+                  allHotspots = allHotspots.concat(stats.hotspots);
+                }
               } catch {
                 // skip on failure
               }
             }
+
+            // Compute Git change metrics (AC-4)
+            const distributionEntropy =
+              computeDistributionEntropy(allHotspots);
+            // Cyclomatic complexity delta: ideally computed via static analysis
+            // at T0 and HEAD (AC-4.2). Until that infrastructure is in place,
+            // we use a heuristic: 5% of net LOC change approximates the number
+            // of new decision points introduced. This is a placeholder that
+            // should be replaced with real static analysis (e.g. eslint
+            // complexity rule diff) when available.
+            const cyclomaticComplexityDelta = Math.round(
+              (locAdded - locDeleted) * 0.05,
+            );
+            const intensityScore = computeChangeIntensityScore(
+              locAdded + locDeleted,
+              distributionEntropy,
+              cyclomaticComplexityDelta,
+            );
 
             const shipUnit: ShipUnitCluster = {
               clusterId,
@@ -222,9 +356,9 @@ class HistoricalCalibrationPipeline
                   locAdded,
                   locDeleted,
                   filesChanged,
-                  distributionEntropy: 0,
-                  cyclomaticComplexityDelta: 0,
-                  changeIntensityScore: 0,
+                  distributionEntropy,
+                  cyclomaticComplexityDelta,
+                  changeIntensityScore: intensityScore,
                 },
               },
             };
@@ -234,7 +368,10 @@ class HistoricalCalibrationPipeline
             await this.gitClient.releaseAll();
           }
         } catch {
-          skippedClusters.push(clusterId);
+          skippedClusters.push({
+            clusterId,
+            reason: "Unexpected error during cluster processing",
+          });
         }
       }
 
@@ -255,11 +392,57 @@ class HistoricalCalibrationPipeline
       if (!calibrationResult.success) return calibrationResult;
 
       // Override DQS with the actual calculated value
+      const result = {
+        ...calibrationResult.data,
+        dataQualityScore: dqs,
+      };
+      result.reliability = {
+        ...result.reliability,
+        dataQualityScore: dqs,
+      };
+
+      // Build per-cluster residuals from calibration output.
+      // Use the simple Ship Rate model (y = shipRate * isvScore) for
+      // per-cluster predicted values, consistent with the scalar Ship Rate.
+      const outlierIds = new Set(
+        result.outliers.entries.map((e) => e.clusterId),
+      );
+      const rawResiduals = shipUnitClusters.map((c) => {
+        const predicted =
+          result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
+        return c.metrics.totalHours - predicted;
+      });
+      const residualVariance =
+        rawResiduals.length > 1
+          ? rawResiduals.reduce((sum, r) => sum + r * r, 0) /
+            (rawResiduals.length - 1)
+          : 0;
+      const residualStdDev = Math.sqrt(residualVariance);
+
+      const residuals: ClusterResidual[] = shipUnitClusters.map((c, i) => {
+        const predicted =
+          result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
+        const residual = rawResiduals[i];
+        const stdResidual =
+          residualStdDev > 0 ? residual / residualStdDev : 0;
+
+        return {
+          clusterId: c.clusterId,
+          actualHours: c.metrics.totalHours,
+          predictedHours: predicted,
+          residual,
+          standardizedResidual: stdResidual,
+          isOutlier: outlierIds.has(c.clusterId),
+        };
+      });
+
       return {
         success: true,
         data: {
-          ...calibrationResult.data,
-          dataQualityScore: dqs,
+          result,
+          clusters: shipUnitClusters,
+          residuals,
+          skippedClusters,
         },
       };
     } catch (err) {

@@ -15,7 +15,7 @@ Provides a high-level `TicketClient` that abstracts raw format details and file 
 | `factory.ts` | `createTicketClient(config)` — factory that resolves adapters and discovers files |
 | `raw-format.schema.ts` | `TicketRawFormatSchema` — Zod enum of supported raw formats |
 | `client-config.schema.ts` | `TicketClientConfigSchema` — project-specific configuration for the factory |
-| `query.schema.ts` | `TicketQuerySchema` — structured query criteria (all, byTicketNumbers, withSubtasks) |
+| `query.schema.ts` | `TicketQuerySchema` — structured query criteria (all, byTicketNumbers, withSubtasks) with optional timeframe filter |
 | `index.ts` | Public re-exports for the module |
 | `jira-xml.adapter.test.ts` | Tier 2: adapter wired against committed XML fixture |
 | `jira.boundary.test.ts` | Tier 3: full factory → client, mocked boundary |
@@ -46,6 +46,15 @@ const byIds = await client.getTickets({
 const withSubs = await client.getTickets({
   mode: "withSubtasks",
   parentIds: ["PROJ-100"],
+});
+
+// All tickets within a timeframe
+const byTimeframe = await client.getTickets({
+  mode: "all",
+  timeframe: {
+    start: "2025-01-01T00:00:00.000Z",
+    end: "2025-06-30T23:59:59.000Z",
+  },
 });
 ```
 

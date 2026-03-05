@@ -269,10 +269,21 @@ describe("Calibration Service — boundary test", () => {
       if (!result.success) return;
 
       expect(result.data.shipRateHoursPerIsv).toBeGreaterThan(0);
+      expect(result.data.shipRateExclOutliers).toBeGreaterThan(0);
       expect(result.data.rSquared).toBeGreaterThanOrEqual(0);
       expect(result.data.rSquared).toBeLessThanOrEqual(1);
       expect(result.data.sampleSize).toBe(2);
       expect(result.data.formulaVersion).toBe("3.4");
+
+      // New mandatory fields
+      expect(result.data.factorDiagnostics).toHaveLength(9);
+      expect(result.data.reliability).toBeDefined();
+      expect(result.data.reliability.sampleSize).toBe(2);
+      expect(result.data.outliers).toBeDefined();
+      expect(result.data.normalityAssessment).toBeDefined();
+      expect(result.data.formulaValidation).toBeDefined();
+      expect(result.data.formulaValidation.fitAssessment).toBeDefined();
+      expect(result.data.formulaValidation.factorRanking).toHaveLength(9);
     });
 
     it("returns error with fewer than 2 clusters", () => {
