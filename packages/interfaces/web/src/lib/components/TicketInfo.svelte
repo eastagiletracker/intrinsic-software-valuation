@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import Card from './Card.svelte';
+  import { sanitizeHtml } from '$lib/sanitize-html';
 
   let {
     ticket,
@@ -36,12 +37,6 @@
     if (t.includes('epic')) return '⚡';
     return '📋';
   }
-
-  function truncateDescription(text: string, lines: number = 3): string {
-    const split = text.split('\n');
-    if (split.length <= lines) return text;
-    return split.slice(0, lines).join('\n') + '…';
-  }
 </script>
 
 <Card title="Ticket">
@@ -50,7 +45,7 @@
     <span class="text-xl" title={ticket.type}>{typeIcon(ticket.type)}</span>
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
-        <span class="rounded bg-surface-secondary px-2 py-0.5 text-xs font-medium text-text-secondary">{ticket.ticketId}</span>
+        <a href="https://bitgrip.atlassian.net/browse/{ticket.ticketId}" target="_blank" rel="noopener noreferrer" class="rounded bg-surface-secondary px-2 py-0.5 text-xs font-medium text-text-secondary hover:underline">{ticket.ticketId}</a>
         <span class="rounded bg-surface-blue px-2 py-0.5 text-xs font-medium text-brand">{ticket.type}</span>
         {#if ticket.storyPoints !== undefined}
           <span class="rounded bg-accent-red-extra-light px-2 py-0.5 text-xs font-medium text-accent-red">{ticket.storyPoints} SP</span>
@@ -72,16 +67,19 @@
   <!-- Description (collapsible) -->
   {#if ticket.description}
     <div class="mt-4 border-t border-border pt-4">
-      <pre class="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary font-sans">{descriptionExpanded ? ticket.description : truncateDescription(ticket.description)}</pre>
-      {#if ticket.description.split('\n').length > 3}
-        <button
-          type="button"
-          class="mt-2 text-xs font-medium text-brand hover:underline"
-          onclick={() => descriptionExpanded = !descriptionExpanded}
-        >
-          {descriptionExpanded ? '▲ Collapse' : '▼ Show full description'}
-        </button>
-      {/if}
+      <div
+        class="ticket-html text-sm leading-relaxed text-text-secondary"
+        class:line-clamp-3={!descriptionExpanded}
+      >
+        {@html sanitizeHtml(ticket.description)}
+      </div>
+      <button
+        type="button"
+        class="mt-2 text-xs font-medium text-brand hover:underline"
+        onclick={() => descriptionExpanded = !descriptionExpanded}
+      >
+        {descriptionExpanded ? '▲ Collapse' : '▼ Show full description'}
+      </button>
     </div>
   {/if}
 
@@ -93,7 +91,7 @@
         {#each ticket.subtasks as sub}
           <li class="flex items-center gap-2 text-sm text-text-secondary">
             <span class="text-xs">📎</span>
-            <span class="font-mono text-xs text-text-secondary/60">{sub.ticketId}</span>
+            <a href="https://bitgrip.atlassian.net/browse/{sub.ticketId}" target="_blank" rel="noopener noreferrer" class="font-mono text-xs text-text-secondary/60 hover:underline">{sub.ticketId}</a>
             <span>{sub.title}</span>
           </li>
         {/each}
@@ -125,7 +123,7 @@
                 <span class="text-text-secondary/40">·</span>
                 <span>{new Date(comment.createdAt).toLocaleDateString()}</span>
               </div>
-              <p class="mt-1 text-sm text-text">{comment.body}</p>
+              <div class="mt-1 text-sm text-text ticket-html">{@html sanitizeHtml(comment.body)}</div>
             </li>
           {/each}
         </ul>

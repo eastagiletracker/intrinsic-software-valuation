@@ -60,3 +60,63 @@
     background-color: var(--color-surface-secondary);
   }
 }
+
+/* Rendered HTML from Jira descriptions / comments */
+.ticket-html p {
+  margin-bottom: 0.5em;
+}
+.ticket-html p:last-child {
+  margin-bottom: 0;
+}
+.ticket-html a {
+  color: var(--color-brand);
+  text-decoration: underline;
+}
+.ticket-html a:hover {
+  opacity: 0.8;
+}
+.ticket-html ul,
+.ticket-html ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+.ticket-html ul {
+  list-style: disc;
+}
+.ticket-html ol {
+  list-style: decimal;
+}
+.ticket-html blockquote {
+  border-left: 3px solid var(--color-border);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--color-text-secondary);
+}
+.ticket-html code {
+  background: var(--color-surface-secondary);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.ticket-html pre {
+  background: var(--color-surface-secondary);
+  padding: 0.75em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.ticket-html table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+.ticket-html th,
+.ticket-html td {
+  border: 1px solid var(--color-border);
+  padding: 0.35em 0.5em;
+  text-align: left;
+}
+.ticket-html img {
+  max-width: 100%;
+  height: auto;
+}

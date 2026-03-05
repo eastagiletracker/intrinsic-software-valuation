@@ -33,7 +33,7 @@
 
     <!-- AC-UI-2.3: Compact formula breakdown (optional) -->
     <div class="flex items-center gap-4 text-xs text-text-secondary">
-      <span class="font-mono">{result.ticketId}</span>
+      <a href="https://bitgrip.atlassian.net/browse/{result.ticketId}" target="_blank" rel="noopener noreferrer" class="font-mono hover:underline">{result.ticketId}</a>
       <span class="text-border">|</span>
       <span>PO: <span class="font-mono font-medium text-text">{result.breakdown.poValue.toFixed(2)}</span></span>
       <span>Arch: <span class="font-mono font-medium text-text">{result.breakdown.archFactor.toFixed(2)}</span></span>

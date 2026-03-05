@@ -35,7 +35,7 @@
     <p class="mb-1 text-xs font-medium tracking-wider text-text-secondary uppercase">Intrinsic Software Value</p>
     <p class="text-5xl font-bold text-brand">{result.isvScore.toFixed(2)}</p>
     <p class="mt-1 text-xs text-text-secondary">
-      {result.ticketId} · Formula v{result.formulaVersion}
+      <a href="https://bitgrip.atlassian.net/browse/{result.ticketId}" target="_blank" rel="noopener noreferrer" class="hover:underline">{result.ticketId}</a> · Formula v{result.formulaVersion}
     </p>
   </div>
 
