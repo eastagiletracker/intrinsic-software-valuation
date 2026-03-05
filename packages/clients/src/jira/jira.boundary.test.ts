@@ -106,4 +106,61 @@ describe("TicketClient — component boundary", () => {
       expect(result.data).toEqual([]);
     }
   });
+
+  it("filters tickets by timeframe (AC-2)", async () => {
+    const client = await createTicketClient({
+      dataFolderName: "__test-ticket-integration__",
+      ticketPrefix: "ACME",
+      rawFormat: "jira-xml",
+    });
+
+    // Only tickets with updatedAt between Jan 9 and Jan 12, 2025
+    // ACME-101: updated Jan 9 → should be included
+    // ACME-102: updated Jan 10 → should be included
+    const result = await client.getTickets({
+      mode: "all",
+      timeframe: {
+        start: "2025-01-09T00:00:00.000Z",
+        end: "2025-01-12T23:59:59.000Z",
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // Only subtasks updated in that narrow window
+      expect(result.data.length).toBeGreaterThanOrEqual(1);
+      expect(result.data.length).toBeLessThan(6);
+      for (const ticket of result.data) {
+        const updated = new Date(ticket.updatedAt).getTime();
+        expect(updated).toBeGreaterThanOrEqual(
+          new Date("2025-01-09T00:00:00.000Z").getTime(),
+        );
+        expect(updated).toBeLessThanOrEqual(
+          new Date("2025-01-12T23:59:59.000Z").getTime(),
+        );
+      }
+    }
+  });
+
+  it("timeframe filter combined with byTicketNumbers (AC-2)", async () => {
+    const client = await createTicketClient({
+      dataFolderName: "__test-ticket-integration__",
+      ticketPrefix: "ACME",
+      rawFormat: "jira-xml",
+    });
+
+    // ACME-100 updated Jan 17 15:00 UTC, ACME-200 updated Jan 16 08:00 UTC
+    // Both are within this wide timeframe
+    const result = await client.getTickets({
+      mode: "byTicketNumbers",
+      ticketIds: ["ACME-100", "ACME-200"],
+      timeframe: {
+        start: "2025-01-01T00:00:00.000Z",
+        end: "2025-01-18T00:00:00.000Z",
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toHaveLength(2);
+    }
+  });
 });
