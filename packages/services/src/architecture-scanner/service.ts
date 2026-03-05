@@ -8,6 +8,33 @@ import type { LlmClient } from "@isv/clients";
 import type { ArchitectureScannerPort } from "./port.js";
 
 // ---------------------------------------------------------------------------
+// LLM output helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a JSON object from LLM text that may contain markdown fences,
+ * preamble text, or trailing commentary.
+ */
+function extractJson(text: string): string {
+  // 1. Try markdown code fences (relaxed: allow missing newline before closing ```)
+  const fenceMatch = text.match(/```json\s*\n?([\s\S]*?)\n?\s*```/i);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  // 2. Try plain ``` fences
+  const plainFence = text.match(/```\s*\n?([\s\S]*?)\n?\s*```/i);
+  if (plainFence) return plainFence[1].trim();
+
+  // 3. Find the outermost { … } block (handles preamble / trailing text)
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return text.slice(firstBrace, lastBrace + 1);
+  }
+
+  return text.trim();
+}
+
+// ---------------------------------------------------------------------------
 // System prompt for LLM
 // ---------------------------------------------------------------------------
 
@@ -128,18 +155,7 @@ class ArchitectureScannerService implements ArchitectureScannerPort {
       // Parse LLM response as JSON
       let rawJson: unknown;
       try {
-        // Handle markdown code fences around JSON, possibly with preamble text
-        let text = llmResult.data;
-        const fenceMatch = text.match(/```json\s*\n([\s\S]*?)\n\s*```/i);
-        if (fenceMatch) {
-          text = fenceMatch[1];
-        } else {
-          text = text
-            .replace(/^```json\s*/i, "")
-            .replace(/^```\s*/i, "")
-            .replace(/\s*```$/i, "")
-            .trim();
-        }
+        const text = extractJson(llmResult.data);
         rawJson = JSON.parse(text);
       } catch {
         return {
@@ -165,13 +181,19 @@ class ArchitectureScannerService implements ArchitectureScannerPort {
       // Validate against domain schema
       const parsed = SystemContextSchema.safeParse(withRepo);
       if (!parsed.success) {
+        const zodDetails = parsed.error.errors
+          .map((e) => `${e.path.join(".")}: ${e.message}`)
+          .join("; ");
         return {
           success: false,
           error: {
             code: "ARCH_SCANNER_VALIDATION_FAILED",
-            message: "LLM output does not match SystemContext schema",
+            message: `LLM output does not match SystemContext schema: ${zodDetails}`,
             source: "architecture-scanner",
-            context: { zodErrors: parsed.error.errors },
+            context: {
+              zodErrors: parsed.error.errors,
+              rawResponse: llmResult.data.slice(0, 500),
+            },
           },
         };
       }

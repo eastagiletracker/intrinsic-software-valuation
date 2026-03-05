@@ -173,7 +173,12 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
         success: false,
         error: {
           code: "PIPELINE_FAILED",
-          message: err instanceof Error ? err.message : String(err),
+          message:
+            err instanceof Error
+              ? err.message
+              : typeof err === "object" && err !== null && "message" in err
+                ? String((err as Record<string, unknown>).message)
+                : JSON.stringify(err),
           source: "isv-calculation-pipeline",
         },
       };

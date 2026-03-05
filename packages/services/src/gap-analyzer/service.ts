@@ -12,6 +12,101 @@ import type { LlmClient } from "@isv/clients";
 import type { GapAnalyzerPort } from "./port.js";
 
 // ---------------------------------------------------------------------------
+// LLM output helpers
+// ---------------------------------------------------------------------------
+
+/** Valid Fibonacci values per ISV factor scale. */
+const VALID_SCORES: Record<string, readonly number[]> = {
+  A1_Data: [1, 2, 3, 5],
+  A2_UX: [1, 2, 3],
+  B1_Logic: [0, 1, 2, 3, 5, 8],
+  C1_Integration: [1, 2, 3, 5],
+  D3_Quality: [1, 2, 3],
+};
+
+/** Snap a numeric value to the nearest allowed Fibonacci score. */
+function snapToScale(value: unknown, scale: readonly number[]): number {
+  const n = typeof value === "string" ? Number(value) : Number(value);
+  if (!Number.isFinite(n)) return scale[0];
+  let best = scale[0];
+  let bestDist = Math.abs(n - best);
+  for (const s of scale) {
+    const d = Math.abs(n - s);
+    if (d < bestDist) {
+      best = s;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Extract a JSON object from LLM text that may contain markdown fences,
+ * preamble text, or trailing commentary.
+ */
+function extractJson(text: string): string {
+  // 1. Try markdown code fences (relaxed: allow missing newline before closing ```)
+  const fenceMatch = text.match(/```json\s*\n?([\s\S]*?)\n?\s*```/i);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  // 2. Try plain ``` fences
+  const plainFence = text.match(/```\s*\n?([\s\S]*?)\n?\s*```/i);
+  if (plainFence) return plainFence[1].trim();
+
+  // 3. Find the outermost { … } block (handles preamble / trailing text)
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return text.slice(firstBrace, lastBrace + 1);
+  }
+
+  return text.trim();
+}
+
+/**
+ * Pre-process raw LLM JSON to fix common issues before Zod validation:
+ * - Replace null values with undefined (LLMs often use null for optional fields)
+ * - Coerce score values to nearest valid Fibonacci number
+ * - Ensure score fields are numbers, not strings
+ */
+function preprocessGapResult(raw: Record<string, unknown>): Record<string, unknown> {
+  // Recursively strip null → undefined (Zod .optional() rejects null)
+  stripNulls(raw);
+
+  const scoring = raw.isvScoring as Record<string, unknown> | undefined;
+  if (scoring && typeof scoring === "object") {
+    for (const [key, scale] of Object.entries(VALID_SCORES)) {
+      const factor = scoring[key] as Record<string, unknown> | undefined;
+      if (factor && typeof factor === "object" && "score" in factor) {
+        factor.score = snapToScale(factor.score, scale);
+      }
+    }
+  }
+
+  // Ensure meta.confidenceScore is a number
+  const meta = raw.meta as Record<string, unknown> | undefined;
+  if (meta && typeof meta === "object" && "confidenceScore" in meta) {
+    const cs = meta.confidenceScore;
+    if (typeof cs === "string") {
+      meta.confidenceScore = Number(cs);
+    }
+  }
+
+  return raw;
+}
+
+/** Recursively replace null values with undefined so Zod .optional() accepts them. */
+function stripNulls(obj: Record<string, unknown>): void {
+  for (const key of Object.keys(obj)) {
+    if (obj[key] === null) {
+      obj[key] = undefined;
+    } else if (typeof obj[key] === "object" && obj[key] !== null && !Array.isArray(obj[key])) {
+      stripNulls(obj[key] as Record<string, unknown>);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // System prompt for LLM
 // ---------------------------------------------------------------------------
 
@@ -86,18 +181,7 @@ Produce the GapAnalysisResult JSON now.`;
       // Parse LLM response as JSON
       let rawJson: unknown;
       try {
-        // Handle markdown code fences around JSON, possibly with preamble text
-        let text = llmResult.data;
-        const fenceMatch = text.match(/```json\s*\n([\s\S]*?)\n\s*```/i);
-        if (fenceMatch) {
-          text = fenceMatch[1];
-        } else {
-          text = text
-            .replace(/^```json\s*/i, "")
-            .replace(/^```\s*/i, "")
-            .replace(/\s*```$/i, "")
-            .trim();
-        }
+        const text = extractJson(llmResult.data);
         rawJson = JSON.parse(text);
       } catch {
         return {
@@ -111,16 +195,27 @@ Produce the GapAnalysisResult JSON now.`;
         };
       }
 
+      // Pre-process to fix common LLM output quirks (score coercion, types)
+      if (rawJson && typeof rawJson === "object") {
+        rawJson = preprocessGapResult(rawJson as Record<string, unknown>);
+      }
+
       // Validate against domain schema
       const parsed = GapAnalysisResultSchema.safeParse(rawJson);
       if (!parsed.success) {
+        const zodDetails = parsed.error.errors
+          .map((e) => `${e.path.join(".")}: ${e.message}`)
+          .join("; ");
         return {
           success: false,
           error: {
             code: "GAP_ANALYZER_VALIDATION_FAILED",
-            message: "LLM output does not match GapAnalysisResult schema",
+            message: `LLM output does not match GapAnalysisResult schema: ${zodDetails}`,
             source: "gap-analyzer",
-            context: { zodErrors: parsed.error.errors },
+            context: {
+              zodErrors: parsed.error.errors,
+              rawResponse: llmResult.data.slice(0, 500),
+            },
           },
         };
       }
