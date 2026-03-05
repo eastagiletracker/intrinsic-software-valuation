@@ -66,8 +66,14 @@ class DefaultGitClient implements GitClient {
     const workBasePath = resolve(this.basePath, "work");
     const results = new Map<string, WorkingTree>();
 
-    for (const [id, repo] of this.repos) {
-      const tree = await this.port.checkout(repo, before, workBasePath);
+    const entries = Array.from(this.repos.entries());
+    const trees = await Promise.all(
+      entries.map(([, repo]) => this.port.checkout(repo, before, workBasePath)),
+    );
+
+    for (let i = 0; i < entries.length; i++) {
+      const [id] = entries[i];
+      const tree = trees[i];
       this.activeWorktrees.add(tree);
       results.set(id, tree);
     }

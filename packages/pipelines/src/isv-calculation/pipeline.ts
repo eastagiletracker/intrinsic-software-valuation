@@ -21,6 +21,7 @@ import type {
   PipelineProgressCallback,
   PipelineProgressEvent,
 } from "./port.js";
+import { createLlmGate } from "../shared/llm-semaphore.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline implementation
@@ -130,14 +131,50 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
       });
 
       try {
-        // Step 3: Status Quo Miner → CodeHealthReport[]
+        // ------------------------------------------------------------------
+        // Parallel per-repo processing: mine + scan run concurrently per repo,
+        // all repos processed simultaneously. LLM calls gated by semaphore.
+        // ------------------------------------------------------------------
+
         const workingTrees = repoIds
           .filter((id) => trees.has(id))
           .map((id) => trees.get(id)!);
 
-        const mineResult = await this.statusQuoMiner.mine(workingTrees, now);
-        if (!mineResult.success) return mineResult;
-        const codeHealthReports = mineResult.data;
+        const llmGate = createLlmGate(config.llmConcurrency ?? 5);
+
+        // Wrap the LLM client so every invocation carries the abort signal.
+        const signalledLlm: LlmClient = {
+          prompt: (query) => this.llmClient.prompt({ ...query, signal }),
+        };
+
+        // Check abort before launching parallel work
+        const abortedBeforeParallel = checkAborted();
+        if (abortedBeforeParallel) return abortedBeforeParallel;
+
+        // Process all repos in parallel: each repo mines + scans concurrently
+        const perRepoResults = await Promise.all(
+          workingTrees.map(async (tree) => {
+            // Mine this single repo
+            const mineResult = await this.statusQuoMiner.mine([tree], now);
+            if (!mineResult.success) throw mineResult.error;
+            const healthReport = mineResult.data[0];
+
+            // Scan this repo (gated by LLM semaphore)
+            const scanResult = await llmGate(() =>
+              this.architectureScanner.scan(
+                tree.workingDir,
+                signalledLlm,
+                tree.commitSha,
+              ),
+            );
+            if (!scanResult.success) throw scanResult.error;
+
+            return { tree, healthReport, systemContext: scanResult.data };
+          }),
+        );
+
+        // --- Emit code-health-mined (barrier: all mining complete) ---
+        const codeHealthReports = perRepoResults.map((r) => r.healthReport);
 
         completedSteps++;
         const coverages = codeHealthReports
@@ -155,36 +192,18 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           detail: `${codeHealthReports.length} repo(s) [${minedRepoNames}] — avg coverage: ${avgCoverage}%`,
         });
 
-        // Step 4: Architecture Scanner → SystemContext[] (one per repo)
+        // --- Emit architecture-scanned per repo ---
         const repoBaselines: RepositoryBaseline[] = [];
         const repoPipelineResults: RepositoryPipelineResult[] = [];
 
-        // Wrap the LLM client so every invocation carries the abort signal.
-        const signalledLlm: LlmClient = {
-          prompt: (query) => this.llmClient.prompt({ ...query, signal }),
-        };
+        for (let i = 0; i < perRepoResults.length; i++) {
+          const { tree, healthReport, systemContext } = perRepoResults[i];
 
-        for (let i = 0; i < workingTrees.length; i++) {
-          const aborted = checkAborted();
-          if (aborted) return aborted;
-
-          const tree = workingTrees[i];
-          const scanResult = await this.architectureScanner.scan(
-            tree.workingDir,
-            signalledLlm,
-          );
-          if (!scanResult.success) return scanResult;
-
-          const healthReport =
-            codeHealthReports.find(
-              (r) => r.repository.repositoryId === tree.repositoryId,
-            ) ?? codeHealthReports[i];
-
-          // Step 5: Derive per-repo C2
+          // Derive per-repo C2
           const c2State = this.valuation.deriveC2(healthReport.healthScores);
 
           repoBaselines.push({
-            systemContext: scanResult.data,
+            systemContext,
             codeHealthReport: healthReport,
             c2State,
           });
@@ -192,7 +211,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           repoPipelineResults.push({
             repositoryId: tree.repositoryId,
             codeHealthReport: healthReport,
-            systemContext: scanResult.data,
+            systemContext,
             c2State,
             provenance: {
               commitSha: tree.commitSha,
@@ -207,7 +226,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
             totalSteps,
             data: {
               repositoryId: tree.repositoryId,
-              systemContext: scanResult.data,
+              systemContext,
               codeHealthReport: healthReport,
               c2State,
             },
