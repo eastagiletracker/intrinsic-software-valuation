@@ -1,5 +1,9 @@
 import type { StructuralFacts, HealthScores } from "@isv/domain";
 
+import type { CacheConfig } from "../cache/cache-config.schema.js";
+import { FileCache } from "../cache/file-cache.js";
+
+import { CachedStaticAnalysisClient } from "./cached-static-analysis-client.js";
 import type { StaticAnalysisClient } from "./client.js";
 import type { StaticAnalysisPort, SccResult, JscpdResult, KnipResult } from "./port.js";
 import { CliStaticAnalysisAdapter } from "./cli-static-analysis.adapter.js";
@@ -87,10 +91,19 @@ class DefaultStaticAnalysisClient implements StaticAnalysisClient {
  *
  * @param port - Optional custom port implementation for testing.
  *               Defaults to the CLI adapter wrapping scc/jscpd/knip.
+ * @param cacheConfig - Optional cache configuration. When enabled, results are cached to disk.
  * @returns A `StaticAnalysisClient` instance.
  */
 export function createStaticAnalysisClient(
   port?: StaticAnalysisPort,
+  cacheConfig?: CacheConfig,
 ): StaticAnalysisClient {
-  return new DefaultStaticAnalysisClient(port ?? new CliStaticAnalysisAdapter());
+  const client: StaticAnalysisClient = new DefaultStaticAnalysisClient(
+    port ?? new CliStaticAnalysisAdapter(),
+  );
+
+  if (cacheConfig?.enabled) {
+    return new CachedStaticAnalysisClient(client, new FileCache(cacheConfig));
+  }
+  return client;
 }

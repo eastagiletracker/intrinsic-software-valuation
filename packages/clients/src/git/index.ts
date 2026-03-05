@@ -15,3 +15,4 @@ export {
   type GitClientConfig,
 } from "./client-config.schema.js";
 export { createGitClient } from "./factory.js";
+export { CachedGitClient } from "./cached-git-client.js";

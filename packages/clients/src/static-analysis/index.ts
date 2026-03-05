@@ -6,3 +6,4 @@ export { createStaticAnalysisClient, mapStructuralFacts, mapHealthScores } from 
 export { parseSccOutput } from "./scc-adapter.js";
 export { parseJscpdOutput } from "./jscpd-adapter.js";
 export { parseKnipOutput } from "./knip-adapter.js";
+export { CachedStaticAnalysisClient } from "./cached-static-analysis-client.js";

@@ -17,3 +17,4 @@ export {
   type TimeTrackingQuery,
 } from "./query.schema.js";
 export { createTimeTrackingClient } from "./factory.js";
+export { CachedTimeTrackingClient } from "./cached-time-tracking-client.js";

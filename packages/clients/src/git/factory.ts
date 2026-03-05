@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 
 import type { IsoTimestamp, ServiceError } from "@isv/domain";
 
+import type { CacheConfig } from "../cache/cache-config.schema.js";
+import { FileCache } from "../cache/file-cache.js";
+
+import { CachedGitClient } from "./cached-git-client.js";
 import type { GitClient } from "./client.js";
 import type { GitClientConfig } from "./client-config.schema.js";
 import { GitWorktreeAdapter } from "./git-worktree.adapter.js";
@@ -135,10 +139,12 @@ class DefaultGitClient implements GitClient {
  * repository pool.
  *
  * @param config - Project-specific configuration (repositories + data folder).
+ * @param cacheConfig - Optional cache configuration. When enabled, logStats results are cached.
  * @returns A `Promise` resolving to an initialised `GitClient`.
  */
 export async function createGitClient(
   config: GitClientConfig,
+  cacheConfig?: CacheConfig,
 ): Promise<GitClient> {
   // Reject duplicate repositoryIds
   const ids = config.repositories.map((r) => r.repositoryId);
@@ -161,5 +167,10 @@ export async function createGitClient(
     repos.set(ref.repositoryId, prepared);
   }
 
-  return new DefaultGitClient(port, repos, basePath);
+  const client: GitClient = new DefaultGitClient(port, repos, basePath);
+
+  if (cacheConfig?.enabled) {
+    return new CachedGitClient(client, new FileCache(cacheConfig));
+  }
+  return client;
 }
