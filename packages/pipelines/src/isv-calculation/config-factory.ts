@@ -92,20 +92,20 @@ export async function createIsvCalculationFromConfig(
       | Record<string, unknown>
       | undefined;
 
-    const rawDataFolderName =
+    const fallbackDataFolderName =
       (jiraConfig.dataFolderName as string | undefined) ??
       (gitConfig.dataFolderName as string | undefined) ??
       (projectMeta?.dataFolderName as string | undefined) ??
       (projectMeta?.slug as string | undefined) ??
       "";
 
-    // When an explicit cwd is provided, resolve dataFolderName to an absolute
-    // path. Client factories use `resolve("data", dataFolderName, …)` internally;
-    // passing an absolute segment causes `resolve` to ignore the leading "data"
-    // prefix and produce the correct absolute result without mutating process.cwd().
-    const dataFolderName = options?.cwd
-      ? join(options.cwd, "data", rawDataFolderName)
-      : rawDataFolderName;
+    function resolveDataFolder(raw: string): string {
+      // When an explicit cwd is provided, resolve dataFolderName to an absolute
+      // path. Client factories use `resolve("data", dataFolderName, …)` internally;
+      // passing an absolute segment causes `resolve` to ignore the leading "data"
+      // prefix and produce the correct absolute result without mutating process.cwd().
+      return options?.cwd ? join(options.cwd, "data", raw) : raw;
+    }
 
     // Validate required field: ticketPrefix
     const ticketPrefix =
@@ -126,9 +126,16 @@ export async function createIsvCalculationFromConfig(
     }
 
     // 1. Create clients
+    const jiraDataFolderName = resolveDataFolder(
+      (jiraConfig.dataFolderName as string | undefined) ?? fallbackDataFolderName,
+    );
+
+    const gitDataFolderName = resolveDataFolder(
+      (gitConfig.dataFolderName as string | undefined) ?? fallbackDataFolderName,
+    );
+
     const ticketClient = await createTicketClient({
-      dataFolderName:
-        (jiraConfig.dataFolderName as string | undefined) ?? dataFolderName,
+      dataFolderName: jiraDataFolderName,
       ticketPrefix,
       rawFormat: (jiraConfig.rawFormat as "jira-xml") ?? "jira-xml",
     });
@@ -139,8 +146,7 @@ export async function createIsvCalculationFromConfig(
         url?: string;
         localPath?: string;
       }>) ?? [],
-      dataFolderName:
-        (gitConfig.dataFolderName as string | undefined) ?? dataFolderName,
+      dataFolderName: gitDataFolderName,
     });
 
     const llmClient = createLlmClient({

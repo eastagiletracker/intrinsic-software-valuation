@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createGitClient, createTicketClient } from "@isv/clients";
 
 import { createIsvCalculationFromConfig } from "./config-factory.js";
 
@@ -142,5 +143,23 @@ describe("createIsvCalculationFromConfig — boundary test", () => {
 
     await result.data.cleanup();
     // Verify cleanup completes without error — the mocked releaseAll resolves to undefined
+  });
+
+  it("normalizes jira/git dataFolderName with cwd option", async () => {
+    const cwd = "/repo-root";
+    const result = await createIsvCalculationFromConfig(validConfig, { cwd });
+    expect(result.success).toBe(true);
+
+    expect(createTicketClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataFolderName: "/repo-root/data/test",
+      }),
+    );
+
+    expect(createGitClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataFolderName: "/repo-root/data/test",
+      }),
+    );
   });
 });
