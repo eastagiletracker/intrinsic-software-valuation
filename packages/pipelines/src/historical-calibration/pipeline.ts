@@ -30,6 +30,14 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
+ * Get the last moment of the last day of the given month.
+ * Uses the Date.UTC day-0 trick: month+1, day 0 → last day of current month.
+ */
+function lastMomentOfMonth(year: number, month: number): Date {
+  return new Date(Date.UTC(year, month + 1, 0, 23, 59, 59));
+}
+
+/**
  * Resolve periodStart/periodEnd from config, defaulting to an 18-month
  * window ending at the current month.
  */
@@ -40,9 +48,7 @@ function resolvePeriod(config: HistoricalCalibrationConfig): {
   const now = new Date();
   const endDate = config.periodEnd
     ? new Date(config.periodEnd + "-01T00:00:00.000Z")
-    : new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59),
-      );
+    : lastMomentOfMonth(now.getUTCFullYear(), now.getUTCMonth());
 
   const startDate = config.periodStart
     ? new Date(config.periodStart + "-01T00:00:00.000Z")
@@ -59,16 +65,7 @@ function resolvePeriod(config: HistoricalCalibrationConfig): {
 
   // For the end, use last moment of the last day of the month
   const endOfMonth = config.periodEnd
-    ? new Date(
-        Date.UTC(
-          endDate.getUTCFullYear(),
-          endDate.getUTCMonth() + 1,
-          0,
-          23,
-          59,
-          59,
-        ),
-      )
+    ? lastMomentOfMonth(endDate.getUTCFullYear(), endDate.getUTCMonth())
     : endDate;
 
   return {
@@ -323,8 +320,12 @@ class HistoricalCalibrationPipeline
             // Compute Git change metrics (AC-4)
             const distributionEntropy =
               computeDistributionEntropy(allHotspots);
-            // Cyclomatic complexity delta: requires static analysis at T0 and HEAD.
-            // For now, use a heuristic based on LOC changes
+            // Cyclomatic complexity delta: ideally computed via static analysis
+            // at T0 and HEAD (AC-4.2). Until that infrastructure is in place,
+            // we use a heuristic: 5% of net LOC change approximates the number
+            // of new decision points introduced. This is a placeholder that
+            // should be replaced with real static analysis (e.g. eslint
+            // complexity rule diff) when available.
             const cyclomaticComplexityDelta = Math.round(
               (locAdded - locDeleted) * 0.05,
             );
@@ -400,19 +401,28 @@ class HistoricalCalibrationPipeline
         dataQualityScore: dqs,
       };
 
-      // Build per-cluster residuals from calibration output
-      const residuals: ClusterResidual[] = shipUnitClusters.map((c, i) => {
-        const outlierEntry = result.outliers.entries.find(
-          (e) => e.clusterId === c.clusterId,
-        );
-        // Use simple predicted = shipRate * isvScore as approximation
-        // (actual residuals are computed by calibration service internally)
+      // Build per-cluster residuals from calibration output.
+      // Use the simple Ship Rate model (y = shipRate * isvScore) for
+      // per-cluster predicted values, consistent with the scalar Ship Rate.
+      const outlierIds = new Set(
+        result.outliers.entries.map((e) => e.clusterId),
+      );
+      const rawResiduals = shipUnitClusters.map((c) => {
         const predicted =
           result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
-        const residual = c.metrics.totalHours - predicted;
-        const residualStdDev =
-          result.reliability.standardError *
-          Math.sqrt(result.reliability.sampleSize);
+        return c.metrics.totalHours - predicted;
+      });
+      const residualVariance =
+        rawResiduals.length > 1
+          ? rawResiduals.reduce((sum, r) => sum + r * r, 0) /
+            (rawResiduals.length - 1)
+          : 0;
+      const residualStdDev = Math.sqrt(residualVariance);
+
+      const residuals: ClusterResidual[] = shipUnitClusters.map((c, i) => {
+        const predicted =
+          result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
+        const residual = rawResiduals[i];
         const stdResidual =
           residualStdDev > 0 ? residual / residualStdDev : 0;
 
@@ -422,7 +432,7 @@ class HistoricalCalibrationPipeline
           predictedHours: predicted,
           residual,
           standardizedResidual: stdResidual,
-          isOutlier: !!outlierEntry,
+          isOutlier: outlierIds.has(c.clusterId),
         };
       });
 
