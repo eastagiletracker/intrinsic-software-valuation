@@ -8,6 +8,7 @@
  *   isv calibrate --project <slug> [--from <YYYY-MM>] [--to <YYYY-MM>] [--run-id <id>]
  *                 [--concurrency <n>] [--llm-concurrency <n>]
  *   isv calibrate --status --project <slug> [--run-id <id>]
+ *   isv cache-purge --project <slug>        — Delete cached data for a project
  *   isv init --project <slug>
  *
  * Exit codes:
@@ -31,6 +32,7 @@ import {
   createHistoricalCalibrationFromConfig,
   writeCalibrationReport,
   SqliteRunStore,
+  purgeProjectCache,
 } from "@isv/pipelines";
 
 // ---------------------------------------------------------------------------
@@ -376,13 +378,15 @@ Usage:
   isv calculate <ticketId> --project <slug> [options]
   isv calibrate --project <slug> [options]
   isv calibrate --status --project <slug> [--run-id <id>]
+  isv cache-purge --project <slug>
   isv init --project <slug> [--warmup]
   isv --help
 
 Commands:
-  calculate   Calculate the ISV for a single ticket
-  calibrate   Run historical calibration for a project
-  init        Initialise project structure (--warmup to build SQLite data layer)
+  calculate    Calculate the ISV for a single ticket
+  calibrate    Run historical calibration for a project
+  cache-purge  Delete cached data (architecture scanner, status quo miner) for a project
+  init         Initialise project structure (--warmup to build SQLite data layer)
 
 Global Options:
   --help      Show help (use with a command for command-specific help)
@@ -421,6 +425,30 @@ Options:
   --json                      Suppress stderr progress output (stdout JSON only)
   --help                      Show this help message
 `;
+
+// ---------------------------------------------------------------------------
+// Cache-purge command
+// ---------------------------------------------------------------------------
+
+async function runCachePurge(args: string[]): Promise<void> {
+  const projectSlug = findFlag(args, "--project");
+  if (!projectSlug) {
+    console.error("Usage: isv cache-purge --project <slug>");
+    process.exit(1);
+  }
+
+  const cwd = monorepoRoot();
+  const result = await purgeProjectCache(projectSlug, cwd);
+
+  if (!result.purged) {
+    console.log(
+      `No cache directory found for project "${projectSlug}" (${result.cacheDir}). Nothing to purge.`,
+    );
+    return;
+  }
+
+  console.log(`\u2713 Cache purged: ${result.cacheDir}`);
+}
 
 // ---------------------------------------------------------------------------
 // Config loading
@@ -708,6 +736,17 @@ switch (command) {
     runInit(args.slice(1)).catch((err) => {
       console.error("Unexpected error:", err);
       process.exit(1);
+    });
+    break;
+  }
+
+  case "cache-purge": {
+    runCachePurge(args.slice(1)).catch((err: unknown) => {
+      console.error(
+        "Unexpected error:",
+        err instanceof Error ? err.message : String(err),
+      );
+      process.exit(2);
     });
     break;
   }

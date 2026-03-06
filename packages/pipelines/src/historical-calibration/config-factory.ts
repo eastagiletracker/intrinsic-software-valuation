@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Result } from "@isv/domain";
 import {
@@ -176,9 +176,22 @@ export async function createHistoricalCalibrationFromConfig(
     // 2. Create static analysis client (no config needed)
     const staticAnalysis = createStaticAnalysisClient();
 
+    // Build cache directory — same pattern as ISV Calculation config-factory
+    const cacheBaseDir = options?.cwd
+      ? resolve(options.cwd, "data", fallbackDataFolderName, "cache")
+      : resolve("data", fallbackDataFolderName, "cache");
+
     // 3. Create services
-    const statusQuoMiner = createStatusQuoMiner(staticAnalysis, gitClient);
-    const architectureScanner = createArchitectureScanner();
+    const statusQuoMiner = createStatusQuoMiner(
+      staticAnalysis,
+      gitClient,
+      { enabled: true, cacheDir: cacheBaseDir },
+    );
+
+    const architectureScanner = createArchitectureScanner({
+      enabled: true,
+      cacheDir: cacheBaseDir,
+    });
     const gapAnalyzer = createGapAnalyzer();
     const valuation = createValuationService();
     const calibration = createCalibrationService();

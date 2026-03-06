@@ -10,7 +10,8 @@ Phase 1 (quantitative) of the Fact Finder: collects deterministic code health me
 | --- | --- |
 | `port.ts` | `StatusQuoMinerPort` — service interface |
 | `service.ts` | Implementation: metric collection + entry-point detection + hotspots |
-| `factory.ts` | `createStatusQuoMiner(staticAnalysis, gitClient?)` factory |
+| `cached-miner.ts` | `CachedStatusQuoMinerService` — per-repo caching decorator keyed by `(repositoryId, commitSha)` |
+| `factory.ts` | `createStatusQuoMiner(staticAnalysis, gitClient?, cacheConfig?)` factory |
 | `index.ts` | Public re-exports |
 
 ## How to use

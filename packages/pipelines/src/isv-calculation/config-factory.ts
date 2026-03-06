@@ -160,13 +160,17 @@ export async function createIsvCalculationFromConfig(
     // 2. Create static analysis client (no config needed)
     const staticAnalysis = createStaticAnalysisClient();
 
-    // 3. Create services
-    const statusQuoMiner = createStatusQuoMiner(staticAnalysis, gitClient);
-
-    // Build cache directory for the architecture scanner
+    // Build cache directory — shared by architecture scanner and status quo miner
     const cacheBaseDir = options?.cwd
       ? resolve(options.cwd, "data", fallbackDataFolderName, "cache")
       : resolve("data", fallbackDataFolderName, "cache");
+
+    // 3. Create services
+    const statusQuoMiner = createStatusQuoMiner(
+      staticAnalysis,
+      gitClient,
+      { enabled: true, cacheDir: cacheBaseDir },
+    );
 
     const architectureScanner = createArchitectureScanner({
       enabled: true,

@@ -14,3 +14,4 @@ export type {
   RunConfig,
 } from "./shared/run-store.port.js";
 export { SqliteRunStore } from "./shared/sqlite-run-store.js";
+export { purgeProjectCache, type CachePurgeResult } from "./shared/cache-purge.js";

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { resolve } from "node:path";
 import { SystemContextSchema } from "@isv/domain";
 import type { LlmClient } from "@isv/clients";
 
@@ -113,5 +114,42 @@ describe("Architecture Scanner — boundary test", () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe("ARCH_SCANNER_VALIDATION_FAILED");
+  });
+
+  it("sends a user prompt containing expected sections when scanning a real fixture", async () => {
+    const scanner = createArchitectureScanner();
+    const promptSpy = vi.fn().mockResolvedValue({
+      success: true,
+      data: mockLlmResponse,
+    });
+    const llm: LlmClient = { prompt: promptSpy };
+
+    const fixtureDir = resolve(
+      import.meta.dirname,
+      "__fixtures__",
+      "sample-repo",
+    );
+    await scanner.scan(fixtureDir, llm);
+
+    const call = promptSpy.mock.calls[0][0] as { userPrompt: string; systemPrompt: string };
+
+    // AC-1: directory tree section
+    expect(call.userPrompt).toContain("## Directory Structure");
+
+    // AC-2: targeted file sections
+    expect(call.userPrompt).toContain("## Domain Model Candidates");
+    expect(call.userPrompt).toContain("## Integration / Adapter Candidates");
+    expect(call.userPrompt).toContain("## Architecture Entry Points");
+
+    // AC-3: dependency section
+    expect(call.userPrompt).toContain("## Dependencies");
+
+    // AC-4: key config files
+    expect(call.userPrompt).toContain("## Key Configuration Files");
+
+    // AC-5: enhanced system prompt guidance
+    expect(call.systemPrompt).toContain("domainModels");
+    expect(call.systemPrompt).toContain("adapterCatalog");
+    expect(call.systemPrompt).toContain("business-domain entities");
   });
 });

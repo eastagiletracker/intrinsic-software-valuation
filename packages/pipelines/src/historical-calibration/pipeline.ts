@@ -655,6 +655,7 @@ class HistoricalCalibrationPipeline
           this.architectureScanner.scan(
             workingTrees[0].workingDir,
             this.llmClient,
+            workingTrees[0].commitSha,
           ),
         ),
       );
