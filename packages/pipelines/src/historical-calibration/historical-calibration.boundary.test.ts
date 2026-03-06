@@ -581,8 +581,9 @@ describe("Historical Calibration Pipeline — boundary test", () => {
     );
     expect(clusterEvents.length).toBe(4); // 2 clusters × 2 events (processing + completed)
 
-    // Last events should be regression and complete
-    expect(phases[phases.length - 2]).toBe("regression");
+    // Last events should be regression, generating-summary, and complete
+    expect(phases[phases.length - 3]).toBe("regression");
+    expect(phases[phases.length - 2]).toBe("generating-summary");
     expect(phases[phases.length - 1]).toBe("complete");
   });
 

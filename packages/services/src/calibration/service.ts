@@ -381,6 +381,17 @@ function buildFormulaValidation(
     );
   }
 
+  // Detect zero-hours degenerate case
+  const allHoursZero = diagnostics.every(
+    (d) => d.partialCorrelation === 0 && d.pValue === 1,
+  ) && rSquared === 0;
+
+  if (allHoursZero) {
+    recommendations.unshift(
+      "All tracked hours are zero — time tracking data appears to be missing or not yet attributed. Statistical analysis is not meaningful without actual effort data.",
+    );
+  }
+
   if (fitAssessment === "weak") {
     recommendations.push(
       "Overall model fit is weak — increase sample size or review factor definitions before relying on Ship Rate",

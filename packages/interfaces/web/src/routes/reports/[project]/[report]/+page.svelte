@@ -4,7 +4,33 @@
   import Tooltip from "$lib/components/Tooltip.svelte";
   import ClusterScatterChart from "$lib/components/ClusterScatterChart.svelte";
   import ResidualChart from "$lib/components/ResidualChart.svelte";
+  import ClusterDetailPanel from "$lib/components/ClusterDetailPanel.svelte";
   import { featureLabel } from "$lib/components/feature-labels.js";
+
+  type CachedSnapshotEntry = {
+    repositoryId: string;
+    cacheFile: string;
+    createdAt: string;
+    observedAt?: string;
+    data: unknown;
+  };
+
+  type ClusterCacheDetails = {
+    clusterId: string;
+    clusterIds: string[];
+    gapAnalysis: {
+      ticketId: string;
+      cacheFile: string;
+      createdAt: string;
+      data: unknown;
+    } | null;
+    architectureScanner: {
+      entries: CachedSnapshotEntry[];
+    };
+    statusQuoMiner: {
+      entries: CachedSnapshotEntry[];
+    };
+  };
 
   let { data }: { data: PageData } = $props();
 
@@ -19,9 +45,79 @@
   const dailyRate = $derived(data.legacyDailyRate);
   const hourlyRate = $derived(dailyRate / 8);
 
+  /** True when all clusters have zero tracked hours — data is degenerate. */
+  const allHoursZero = $derived(
+    clusters.length > 0 && clusters.every((c) => c.metrics.totalHours === 0),
+  );
+
   /** Convert Ship Rate (h/ISV) → € per ISV using the project daily rate. */
   const euroPerIsv = $derived(r.shipRateHoursPerIsv * hourlyRate);
   const euroPerIsvExclOutliers = $derived(r.shipRateExclOutliers * hourlyRate);
+
+  /** Selected cluster for detail panel. */
+  let selectedClusterId = $state<string | null>(null);
+  let clusterCacheDetails = $state<ClusterCacheDetails | null>(null);
+  let clusterCacheLoading = $state(false);
+  let clusterCacheError = $state<string | null>(null);
+
+  const selectedCluster = $derived(
+    selectedClusterId
+      ? clusters.find((c) => c.clusterId === selectedClusterId) ?? null
+      : null,
+  );
+
+  const selectedResidual = $derived(
+    selectedClusterId
+      ? residuals.find((r) => r.clusterId === selectedClusterId)
+      : undefined,
+  );
+
+  async function loadClusterCacheDetails(clusterId: string): Promise<void> {
+    clusterCacheLoading = true;
+    clusterCacheError = null;
+
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(data.projectSlug)}/reports?reportSlug=${encodeURIComponent(data.reportSlug)}&clusterId=${encodeURIComponent(clusterId)}`,
+      );
+
+      if (!response.ok) {
+        clusterCacheDetails = null;
+        clusterCacheError = `Unable to load cache details (${response.status})`;
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        data?: ClusterCacheDetails;
+      };
+
+      if (payload.success && payload.data) {
+        clusterCacheDetails = payload.data;
+      } else {
+        clusterCacheDetails = null;
+        clusterCacheError = "Cache details response was invalid.";
+      }
+    } catch (err) {
+      clusterCacheDetails = null;
+      clusterCacheError = err instanceof Error ? err.message : String(err);
+    } finally {
+      clusterCacheLoading = false;
+    }
+  }
+
+  function handleClusterClick(clusterId: string) {
+    if (selectedClusterId === clusterId) {
+      selectedClusterId = null;
+      clusterCacheDetails = null;
+      clusterCacheError = null;
+      clusterCacheLoading = false;
+      return;
+    }
+
+    selectedClusterId = clusterId;
+    void loadClusterCacheDetails(clusterId);
+  }
 
   function fitBadgeClass(fit: string): string {
     switch (fit) {
@@ -57,23 +153,28 @@
     }) + " €";
   }
 
-  // Scatter chart data: ISV score vs actual tracked hours
+  // Scatter chart data: ISV score vs actual tracked hours (enriched with ticket IDs)
   const scatterData = $derived(
     clusters.map((c) => ({
       x: c.isvAnalysis.isvScore,
       y: c.metrics.totalHours,
       label: c.clusterId,
+      ids: c.ids,
     })),
   );
 
-  // Residual chart data
+  // Residual chart data (enriched with ticket IDs)
   const residualData = $derived(
-    residuals.map((r) => ({
-      x: r.predictedHours,
-      y: r.residual,
-      label: r.clusterId,
-      isOutlier: r.isOutlier,
-    })),
+    residuals.map((res) => {
+      const cluster = clusters.find((c) => c.clusterId === res.clusterId);
+      return {
+        x: res.predictedHours,
+        y: res.residual,
+        label: res.clusterId,
+        ids: cluster?.ids ?? [res.clusterId],
+        isOutlier: res.isOutlier,
+      };
+    }),
   );
 </script>
 
@@ -124,6 +225,20 @@
     </div>
 
     <!-- ================================================================== -->
+    <!-- Warning: Zero tracked hours                                        -->
+    <!-- ================================================================== -->
+    {#if allHoursZero}
+      <div class="rounded-xl border border-accent-red bg-accent-red-extra-light p-4">
+        <p class="text-sm font-semibold text-accent-red">⚠ No tracked hours available</p>
+        <p class="mt-1 text-xs text-accent-red">
+          All {clusters.length} clusters have 0 tracked hours. Time tracking data appears to be
+          missing or not yet attributed for this period. Statistical metrics (R², correlations,
+          outlier detection, reliability) are not meaningful without actual effort data.
+        </p>
+      </div>
+    {/if}
+
+    <!-- ================================================================== -->
     <!-- Section 1: Executive Summary                                       -->
     <!-- ================================================================== -->
     <Card title="Executive Summary">
@@ -149,7 +264,7 @@
           <p class="text-xs text-text-secondary">
             <Tooltip term="Data Quality Score" {showExplanations} />
           </p>
-          <p class="text-xl font-bold text-text">{formatNumber(r.dataQualityScore)}</p>
+          <p class="text-xl font-bold text-text">{(r.dataQualityScore * 100).toFixed(1)}%</p>
         </div>
         <div>
           <p class="text-xs text-text-secondary">
@@ -188,6 +303,13 @@
           </span>
         </div>
       </div>
+
+      {#if data.report.executiveSummary}
+        <div class="mt-5 rounded-lg border border-border bg-surface-secondary p-4">
+          <p class="mb-2 text-xs font-semibold text-text-secondary uppercase tracking-wide">AI-Generated Summary</p>
+          <p class="text-sm leading-relaxed text-text whitespace-pre-line">{data.report.executiveSummary}</p>
+        </div>
+      {/if}
     </Card>
 
     <!-- ================================================================== -->
@@ -200,7 +322,11 @@
         the y-axis shows actual tracked hours.
       </p>
       <div class="h-80">
-        <ClusterScatterChart data={scatterData} />
+        <ClusterScatterChart
+          data={scatterData}
+          selectedLabel={selectedClusterId}
+          onpointclick={handleClusterClick}
+        />
       </div>
     </Card>
 
@@ -213,7 +339,11 @@
         Points beyond ±2 <Tooltip term="Standardised Residual" {showExplanations} /> are flagged as outliers.
       </p>
       <div class="h-80">
-        <ResidualChart data={residualData} />
+        <ResidualChart
+          data={residualData}
+          selectedLabel={selectedClusterId}
+          onpointclick={handleClusterClick}
+        />
       </div>
     </Card>
 
@@ -309,6 +439,11 @@
         </div>
       {:else}
         <p class="text-sm text-text-secondary">No outliers detected.</p>
+        {#if allHoursZero}
+          <p class="mt-2 rounded bg-yellow-50 p-2 text-xs text-yellow-800">
+            Outlier detection requires non-zero tracked hours. With all hours at zero, residual variance is near zero so no standardized residual exceeds the ±2σ threshold — visual outliers in the scatter chart cannot be flagged statistically.
+          </p>
+        {/if}
       {/if}
     </Card>
 
@@ -316,12 +451,17 @@
     <!-- Section 6: Data Quality & Reliability                              -->
     <!-- ================================================================== -->
     <Card title="Data Quality & Reliability">
+      {#if allHoursZero}
+        <div class="mb-4 rounded bg-yellow-50 p-3 text-xs text-yellow-800">
+          Reliability metrics require non-zero tracked hours. Values below are not meaningful for this calibration run.
+        </div>
+      {/if}
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div>
           <p class="text-xs text-text-secondary">
             <Tooltip term="DQS" {showExplanations} />
           </p>
-          <p class="text-lg font-semibold">{formatNumber(r.reliability.dataQualityScore)}</p>
+          <p class="text-lg font-semibold">{(r.reliability.dataQualityScore * 100).toFixed(1)}%</p>
         </div>
         <div>
           <p class="text-xs text-text-secondary">Effective Sample Size</p>
@@ -487,3 +627,21 @@
     {/if}
   </main>
 </div>
+
+<!-- Cluster detail slide-in panel -->
+{#if selectedCluster}
+  <ClusterDetailPanel
+    cluster={selectedCluster}
+    residual={selectedResidual}
+    cacheDetails={clusterCacheDetails}
+    cacheLoading={clusterCacheLoading}
+    cacheError={clusterCacheError}
+    {hourlyRate}
+    onclose={() => {
+      selectedClusterId = null;
+      clusterCacheDetails = null;
+      clusterCacheError = null;
+      clusterCacheLoading = false;
+    }}
+  />
+{/if}

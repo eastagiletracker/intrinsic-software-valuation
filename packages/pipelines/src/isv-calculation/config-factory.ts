@@ -176,7 +176,10 @@ export async function createIsvCalculationFromConfig(
       enabled: true,
       cacheDir: cacheBaseDir,
     });
-    const gapAnalyzer = createGapAnalyzer();
+    const gapAnalyzer = createGapAnalyzer({
+      enabled: true,
+      cacheDir: cacheBaseDir,
+    });
     const valuation = createValuationService();
 
     // 4. Assemble pipeline

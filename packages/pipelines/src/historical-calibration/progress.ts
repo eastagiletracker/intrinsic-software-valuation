@@ -11,6 +11,7 @@ export type CalibrationPhaseId =
   | "calculating-dqs"
   | "processing-cluster"
   | "regression"
+  | "generating-summary"
   | "complete";
 
 /** Progress event emitted by the calibration pipeline. */

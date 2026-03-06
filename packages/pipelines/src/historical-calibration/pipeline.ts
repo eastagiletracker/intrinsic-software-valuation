@@ -39,6 +39,7 @@ import {
 } from "../shared/checkpoint.js";
 import { createLlmGate, type LlmGate } from "../shared/llm-semaphore.js";
 import type { RunStore } from "../shared/run-store.port.js";
+import { generateExecutiveSummary } from "./executive-summary.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -218,7 +219,7 @@ class HistoricalCalibrationPipeline
       const period = resolvePeriod(config);
 
       // Step 1: Load tickets (with optional timeframe filter)
-      emit({ phase: "loading-tickets", current: 1, total: 7 });
+      emit({ phase: "loading-tickets", current: 1, total: 8 });
       const ticketResult = await this.ticketClient.getTickets({
         mode: "all",
         timeframe: { start: period.start, end: period.end },
@@ -242,25 +243,25 @@ class HistoricalCalibrationPipeline
       }
 
       // Step 2: Cluster tickets
-      emit({ phase: "clustering", current: 2, total: 7 });
+      emit({ phase: "clustering", current: 2, total: 8 });
       const ticketClusters = this.calibration.clusterTickets(tickets);
 
       // Step 3: Load time entries (with timeframe filter)
-      emit({ phase: "loading-time-entries", current: 3, total: 7 });
+      emit({ phase: "loading-time-entries", current: 3, total: 8 });
       const timeSheet = await this.timeTrackingClient.getTimeSheet({
         timeframe: { start: period.start, end: period.end },
       });
       const timeEntries = timeSheet.entries;
 
       // Step 4: Attribute time to clusters
-      emit({ phase: "attributing-time", current: 4, total: 7 });
+      emit({ phase: "attributing-time", current: 4, total: 8 });
       const attributed = this.calibration.attributeTime(
         timeEntries,
         ticketClusters,
       );
 
       // Step 5: Calculate DQS
-      emit({ phase: "calculating-dqs", current: 5, total: 7 });
+      emit({ phase: "calculating-dqs", current: 5, total: 8 });
       const dqs = this.calibration.calculateDqs(attributed);
 
       // Step 6: For each cluster, run fact finding + gap analysis + valuation
@@ -490,7 +491,7 @@ class HistoricalCalibrationPipeline
       process.removeListener("SIGINT", sigintHandler);
 
       // Step 7: Run calibration regression
-      emit({ phase: "regression", current: 6, total: 7 });
+      emit({ phase: "regression", current: 6, total: 8 });
       if (shipUnitClusters.length < 2) {
         if (store) store.updateRunStatus(runId, "failed");
         return {
@@ -510,14 +511,34 @@ class HistoricalCalibrationPipeline
         return calibrationResult;
       }
 
-      // Override DQS with the actual calculated value
+      // Override DQS and period with the actual configured values.
+      // The calibration service derives periodStart/End from cluster T0
+      // timestamps, which can be misleading — tickets created months before
+      // the calibration window may appear in the period because they were
+      // updated (resolved) during it.  Use the configured filter window instead.
+      const periodStartMonth = period.start.slice(0, 7); // "YYYY-MM"
+      const periodEndMonth = period.end.slice(0, 7);
       const result = {
         ...calibrationResult.data,
         dataQualityScore: dqs,
+        periodStart: periodStartMonth,
+        periodEnd: periodEndMonth,
       };
       result.reliability = {
         ...result.reliability,
         dataQualityScore: dqs,
+      };
+
+      // Rebuild DQS assessment text to match the overridden value
+      const dqsText =
+        dqs >= 0.85
+          ? `Data quality is good (DQS=${(dqs * 100).toFixed(1)}%)`
+          : dqs >= 0.7
+            ? `Data quality is acceptable but could be improved (DQS=${(dqs * 100).toFixed(1)}%)`
+            : `Data quality is low — calibration results may not be trustworthy (DQS=${(dqs * 100).toFixed(1)}%)`;
+      result.formulaValidation = {
+        ...result.formulaValidation,
+        dataQualityAssessment: dqsText,
       };
 
       // Build per-cluster residuals from calibration output.
@@ -562,10 +583,21 @@ class HistoricalCalibrationPipeline
         skippedClusters,
       };
 
+      // Step 8: Generate AI executive summary (non-critical)
+      emit({ phase: "generating-summary", current: 7, total: 8 });
+      const summary = await generateExecutiveSummary(
+        output,
+        this.llmClient,
+        projectConfig.legacyDailyRate,
+      );
+      if (summary) {
+        output.executiveSummary = summary;
+      }
+
       // Persist completed run
       if (store) store.completeRun(runId, output);
 
-      emit({ phase: "complete", current: 7, total: 7 });
+      emit({ phase: "complete", current: 8, total: 8 });
 
       return { success: true, data: output };
     } catch (err) {

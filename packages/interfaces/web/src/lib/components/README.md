@@ -19,6 +19,9 @@ Reusable presentation components that compose the three-panel dashboard layout.
 | `IsvResult.svelte` | Final ISV score with formula breakdown and factor listing |
 | `StickyIsvResult.svelte` | Compact sticky ISV result bar fixed at bottom of center panel |
 | `CalibrationPanel.svelte` | Panel 3 — Calibration context (story points, hours, Git metrics, plausibility) |
+| `ClusterScatterChart.svelte` | Scatter chart: ISV score vs tracked hours with clickable points |
+| `ResidualChart.svelte` | Residual distribution chart with outlier highlighting and clickable points |
+| `ClusterDetailPanel.svelte` | Slide-in detail panel for a selected Ship Unit Cluster (ISV, residual, Git metrics, cached analyzer/scanner payloads) |
 | `Card.svelte` | Reusable card container for result sections |
 | `Skeleton.svelte` | Shimmer loading placeholder for skeleton states |
 | `ErrorDisplay.svelte` | Error message display with code, message, and source |

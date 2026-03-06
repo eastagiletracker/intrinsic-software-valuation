@@ -192,7 +192,10 @@ export async function createHistoricalCalibrationFromConfig(
       enabled: true,
       cacheDir: cacheBaseDir,
     });
-    const gapAnalyzer = createGapAnalyzer();
+    const gapAnalyzer = createGapAnalyzer({
+      enabled: true,
+      cacheDir: cacheBaseDir,
+    });
     const valuation = createValuationService();
     const calibration = createCalibrationService();
 

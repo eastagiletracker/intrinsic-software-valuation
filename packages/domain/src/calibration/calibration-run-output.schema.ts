@@ -30,10 +30,18 @@ export const CalibrationRunOutputSchema = z
         }),
       )
       .describe("Clusters that were skipped during calibration with reasons"),
+    executiveSummary: z
+      .string()
+      .optional()
+      .describe(
+        "AI-generated natural language summary of the calibration report. " +
+          "Covers timeframe, sample size, ship rate, statistical quality, " +
+          "data representativeness, and key findings.",
+      ),
   })
   .describe(
     "Full calibration pipeline output: aggregated result, per-cluster data, " +
-      "residuals, and skipped cluster reporting.",
+      "residuals, skipped cluster reporting, and optional executive summary.",
   );
 
 export type CalibrationRunOutput = z.infer<typeof CalibrationRunOutputSchema>;

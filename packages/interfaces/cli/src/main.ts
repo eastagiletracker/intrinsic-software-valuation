@@ -201,7 +201,7 @@ async function runInit(args: string[]): Promise<void> {
 
     const jiraConfig = config.jira as Record<string, string> | undefined;
     const timeTrackingConfig = config.timeTracking as
-      | Record<string, string>
+      | Record<string, unknown>
       | undefined;
     const projectConfig = config.project as
       | Record<string, string>
@@ -236,9 +236,12 @@ async function runInit(args: string[]): Promise<void> {
         },
         timeTrackingConfig: timeTrackingConfig
           ? {
-              rawFormat: timeTrackingConfig.rawFormat,
-              dataFolderName: timeTrackingConfig.dataFolderName,
-              ticketPrefix: timeTrackingConfig.ticketPrefix,
+              rawFormat: timeTrackingConfig.rawFormat as string | undefined,
+              dataFolderName: timeTrackingConfig.dataFolderName as string,
+              ticketPrefix: timeTrackingConfig.ticketPrefix as string | undefined,
+              sources: Array.isArray(timeTrackingConfig.sources)
+                ? (timeTrackingConfig.sources as Array<{ rawFormat: string; subFolder: string }>)
+                : undefined,
             }
           : undefined,
         onProgress: (event) => {

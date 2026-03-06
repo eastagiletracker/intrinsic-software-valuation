@@ -135,9 +135,15 @@ function makeReport(overrides: {
 const testRoot = join(tmpdir(), `isv-report-test-${Date.now()}`);
 const projectSlug = "test-project";
 const calibrationDir = join(testRoot, "data", projectSlug, "calibration");
+const cacheDir = join(testRoot, "data", projectSlug, "cache");
 
 beforeAll(async () => {
   await mkdir(calibrationDir, { recursive: true });
+  await mkdir(join(cacheDir, "gap-analyzer", "analyze"), { recursive: true });
+  await mkdir(join(cacheDir, "architecture-scanner", "scan"), {
+    recursive: true,
+  });
+  await mkdir(join(cacheDir, "status-quo-miner", "mine"), { recursive: true });
 
   // Write two report files with different timeframes
   await writeFile(
@@ -187,6 +193,64 @@ beforeAll(async () => {
     join(calibrationDir, "not-a-report.json"),
     JSON.stringify({ irrelevant: true }),
   );
+
+  // Cache fixtures for cluster deep-dive lookups
+  await writeFile(
+    join(cacheDir, "gap-analyzer", "analyze", "gap-proj-1.json"),
+    JSON.stringify({
+      ticketId: "PROJ-1",
+      meta: { isTicketActionable: true, confidenceScore: 0.91 },
+      architecturalFit: {
+        canBeImplementedWithExistingPatterns: true,
+        summary: "Fixture summary",
+      },
+    }),
+  );
+  await writeFile(
+    join(cacheDir, "gap-analyzer", "analyze", "gap-other.json"),
+    JSON.stringify({
+      ticketId: "PROJ-999",
+      meta: { isTicketActionable: true, confidenceScore: 0.5 },
+    }),
+  );
+
+  await writeFile(
+    join(cacheDir, "architecture-scanner", "scan", "arch-a-older.json"),
+    JSON.stringify({ repository: { repositoryId: "repo-a" }, marker: "old" }),
+  );
+  await writeFile(
+    join(cacheDir, "architecture-scanner", "scan", "arch-a-newer.json"),
+    JSON.stringify({ repository: { repositoryId: "repo-a" }, marker: "new" }),
+  );
+  await writeFile(
+    join(cacheDir, "architecture-scanner", "scan", "arch-b.json"),
+    JSON.stringify({ repository: { repositoryId: "repo-b" }, marker: "only" }),
+  );
+
+  await writeFile(
+    join(cacheDir, "status-quo-miner", "mine", "mine-a-far.json"),
+    JSON.stringify({
+      repository: { repositoryId: "repo-a" },
+      timestamp: "2020-01-01T00:00:00.000Z",
+      marker: "far",
+    }),
+  );
+  await writeFile(
+    join(cacheDir, "status-quo-miner", "mine", "mine-a-near.json"),
+    JSON.stringify({
+      repository: { repositoryId: "repo-a" },
+      timestamp: "2025-01-15T00:00:01.000Z",
+      marker: "near",
+    }),
+  );
+  await writeFile(
+    join(cacheDir, "status-quo-miner", "mine", "mine-b.json"),
+    JSON.stringify({
+      repository: { repositoryId: "repo-b" },
+      timestamp: "2025-01-15T00:05:00.000Z",
+      marker: "only",
+    }),
+  );
 });
 
 afterAll(async () => {
@@ -208,7 +272,7 @@ vi.stubGlobal("process", {
 });
 
 // Import AFTER stubbing process.cwd
-const { listCalibrationReports, readCalibrationReport } = await import(
+const { listCalibrationReports, readCalibrationReport, readClusterCacheDetails } = await import(
   "./reports.js"
 );
 
@@ -322,6 +386,52 @@ describe("calibration report server utilities", () => {
         "report-2025-01_2026-01",
       );
       expect(report).toBeNull();
+    });
+  });
+
+  describe("readClusterCacheDetails", () => {
+    it("resolves matching gap entry and per-repo snapshots", async () => {
+      const details = await readClusterCacheDetails(
+        projectSlug,
+        "report-2025-01_2026-01",
+        "PROJ-1",
+      );
+
+      expect(details).not.toBeNull();
+      expect(details!.clusterId).toBe("PROJ-1");
+      expect(details!.gapAnalysis?.ticketId).toBe("PROJ-1");
+      expect(details!.architectureScanner.entries).toHaveLength(2);
+      expect(details!.statusQuoMiner.entries).toHaveLength(2);
+
+      const repoAArch = details!.architectureScanner.entries.find(
+        (entry) => entry.repositoryId === "repo-a",
+      );
+      expect(repoAArch).toBeDefined();
+      expect((repoAArch!.data as { marker: string }).marker).toBe("new");
+
+      const repoAMine = details!.statusQuoMiner.entries.find(
+        (entry) => entry.repositoryId === "repo-a",
+      );
+      expect(repoAMine).toBeDefined();
+      expect((repoAMine!.data as { marker: string }).marker).toBe("near");
+    });
+
+    it("returns null when report does not exist", async () => {
+      const details = await readClusterCacheDetails(
+        projectSlug,
+        "report-does-not-exist",
+        "PROJ-1",
+      );
+      expect(details).toBeNull();
+    });
+
+    it("returns null when cluster does not exist", async () => {
+      const details = await readClusterCacheDetails(
+        projectSlug,
+        "report-2025-01_2026-01",
+        "PROJ-404",
+      );
+      expect(details).toBeNull();
     });
   });
 });
