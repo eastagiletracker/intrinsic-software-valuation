@@ -7,7 +7,7 @@ import { z } from "zod";
  * when creating a `TimeTrackingClient`.
  */
 export const TimeTrackingRawFormatSchema = z
-  .enum(["teamleader-excel", "projektron-bcs-excel"])
+  .enum(["teamleader-excel", "teamleader-pdf", "projektron-bcs-excel"])
   .describe(
     "Raw format identifier for time-tracking source data. " +
       "Determines which adapter the factory instantiates.",

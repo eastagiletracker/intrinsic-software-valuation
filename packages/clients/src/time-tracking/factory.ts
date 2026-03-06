@@ -20,6 +20,7 @@ import { ProjektronBcsExcelAdapter } from "./projektron-bcs-excel/index.js";
 import type { TimeTrackingQuery } from "./query.schema.js";
 import { SqliteTimeTrackingClient } from "./sqlite-time-tracking-client.js";
 import { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
+import { TeamleaderPdfAdapter } from "./teamleader-pdf/index.js";
 
 // ---------------------------------------------------------------------------
 // File discovery
@@ -28,6 +29,7 @@ import { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
 /** File extensions accepted per raw format. */
 const FORMAT_EXTENSIONS: Record<string, string[]> = {
   "teamleader-excel": [".xlsx"],
+  "teamleader-pdf": [".pdf"],
   "projektron-bcs-excel": [".xlsx"],
 };
 
@@ -111,12 +113,14 @@ function resolveAdapter(rawFormat: string): TimeTrackingPort {
   switch (rawFormat) {
     case "teamleader-excel":
       return new TeamleaderExcelAdapter();
+    case "teamleader-pdf":
+      return new TeamleaderPdfAdapter();
     case "projektron-bcs-excel":
       return new ProjektronBcsExcelAdapter();
     default:
       throw new Error(
         `Unknown time-tracking raw format: "${rawFormat}". ` +
-          'Supported formats: "teamleader-excel", "projektron-bcs-excel".',
+          'Supported formats: "teamleader-excel", "teamleader-pdf", "projektron-bcs-excel".',
       );
   }
 }

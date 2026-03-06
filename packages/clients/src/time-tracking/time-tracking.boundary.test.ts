@@ -17,6 +17,12 @@ const TL_FIXTURE_XLSX = resolve(
   "__fixtures__",
   "sample-timesheet.xlsx",
 );
+const TL_FIXTURE_PDF = resolve(
+  import.meta.dirname,
+  "teamleader-pdf",
+  "__fixtures__",
+  "sample-timesheet.pdf",
+);
 const PB_FIXTURE_XLSX = resolve(
   import.meta.dirname,
   "projektron-bcs-excel",
@@ -168,5 +174,61 @@ describe("TimeTrackingClient — multi-source boundary", () => {
     for (const entry of sheet.entries) {
       expect(entry.detectedIds).toContain("ACME-200");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Teamleader PDF boundary test
+// ---------------------------------------------------------------------------
+
+describe("TimeTrackingClient — teamleader-pdf boundary", () => {
+  const pdfDir = resolve(DATA_DIR, "teamleader-pdf");
+
+  beforeEach(async () => {
+    await mkdir(pdfDir, { recursive: true });
+    await copyFile(TL_FIXTURE_PDF, resolve(pdfDir, "sample.pdf"));
+  });
+
+  afterEach(async () => {
+    await rm(resolve("data", "__test-timetracking-integration__"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it("creates a client with teamleader-pdf source and fetches entries", async () => {
+    const client = await createTimeTrackingClient({
+      dataFolderName: "__test-timetracking-integration__",
+      ticketPrefix: "ACME",
+      sources: [{ rawFormat: "teamleader-pdf", subFolder: "teamleader-pdf" }],
+    });
+
+    const sheet = await client.getTimeSheet();
+    // 12 rows, 1 filtered (0.05h) → 11 entries
+    expect(sheet.entries).toHaveLength(11);
+    expect(sheet.rawEntryCount).toBe(12);
+    expect(sheet.sourceSystem).toBe("teamleader");
+  });
+
+  it("coexists with teamleader-excel in the same sources array", async () => {
+    const tlExcelDir = resolve(DATA_DIR, "teamleader");
+    await mkdir(tlExcelDir, { recursive: true });
+    await copyFile(TL_FIXTURE_XLSX, resolve(tlExcelDir, "teamleader.xlsx"));
+
+    const client = await createTimeTrackingClient({
+      dataFolderName: "__test-timetracking-integration__",
+      ticketPrefix: "ACME",
+      sources: [
+        { rawFormat: "teamleader-excel", subFolder: "teamleader" },
+        { rawFormat: "teamleader-pdf", subFolder: "teamleader-pdf" },
+      ],
+    });
+
+    const sheet = await client.getTimeSheet();
+    // Both fixtures have 11 entries each (12 raw, 1 filtered)
+    expect(sheet.entries).toHaveLength(22);
+    expect(sheet.rawEntryCount).toBe(24);
+    // Same source system for both → "teamleader"
+    expect(sheet.sourceSystem).toBe("teamleader");
   });
 });

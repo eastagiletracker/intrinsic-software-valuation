@@ -1,6 +1,7 @@
 // Time tracking — port (stable interface) and adapter implementations.
 export type { TimeTrackingPort } from "./port.js";
 export { TeamleaderExcelAdapter } from "./teamleader-excel/index.js";
+export { TeamleaderPdfAdapter } from "./teamleader-pdf/index.js";
 export { ProjektronBcsExcelAdapter } from "./projektron-bcs-excel/index.js";
 
 // High-level client, schemas, and factory.

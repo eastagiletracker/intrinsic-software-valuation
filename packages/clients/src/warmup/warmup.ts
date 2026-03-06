@@ -10,6 +10,7 @@ import type { TicketPort } from "../jira/port.js";
 import type { TimeTrackingPort } from "../time-tracking/port.js";
 import { ProjektronBcsExcelAdapter } from "../time-tracking/projektron-bcs-excel/index.js";
 import { TeamleaderExcelAdapter } from "../time-tracking/teamleader-excel/index.js";
+import { TeamleaderPdfAdapter } from "../time-tracking/teamleader-pdf/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +65,7 @@ const TICKET_FORMAT_EXTENSIONS: Record<string, string[]> = {
 
 const TT_FORMAT_EXTENSIONS: Record<string, string[]> = {
   "teamleader-excel": [".xlsx"],
+  "teamleader-pdf": [".pdf"],
   "projektron-bcs-excel": [".xlsx"],
 };
 
@@ -114,12 +116,14 @@ function resolveTimeTrackingAdapter(rawFormat: string): TimeTrackingPort {
   switch (rawFormat) {
     case "teamleader-excel":
       return new TeamleaderExcelAdapter();
+    case "teamleader-pdf":
+      return new TeamleaderPdfAdapter();
     case "projektron-bcs-excel":
       return new ProjektronBcsExcelAdapter();
     default:
       throw new Error(
         `Unknown time-tracking raw format: "${rawFormat}". ` +
-          'Supported formats: "teamleader-excel", "projektron-bcs-excel".',
+          'Supported formats: "teamleader-excel", "teamleader-pdf", "projektron-bcs-excel".',
       );
   }
 }
