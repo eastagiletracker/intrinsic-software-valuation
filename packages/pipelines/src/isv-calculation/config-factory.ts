@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { Result } from "@isv/domain";
 import {
@@ -161,7 +161,16 @@ export async function createIsvCalculationFromConfig(
 
     // 3. Create services
     const statusQuoMiner = createStatusQuoMiner(staticAnalysis, gitClient);
-    const architectureScanner = createArchitectureScanner();
+
+    // Build cache directory for the architecture scanner
+    const cacheBaseDir = options?.cwd
+      ? resolve(options.cwd, "data", fallbackDataFolderName, "cache")
+      : resolve("data", fallbackDataFolderName, "cache");
+
+    const architectureScanner = createArchitectureScanner({
+      enabled: true,
+      cacheDir: cacheBaseDir,
+    });
     const gapAnalyzer = createGapAnalyzer();
     const valuation = createValuationService();
 

@@ -68,4 +68,6 @@ export interface IsvCalculationConfig {
   d3QualityFloor?: 1 | 2 | 3;
   /** Repository IDs to analyze (if different from all managed repos). */
   repositoryIds?: string[];
+  /** Maximum concurrent LLM calls for architecture scanning (default: 5). */
+  llmConcurrency?: number;
 }

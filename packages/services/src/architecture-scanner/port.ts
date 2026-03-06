@@ -13,7 +13,9 @@ export interface ArchitectureScannerPort {
    *
    * @param workingDir - Absolute path to the checked-out repository.
    * @param llm - LLM client for prompt-based analysis.
+   * @param commitSha - Optional commit SHA; when provided, implementations
+   *   may use it as a cache key to avoid redundant LLM calls.
    * @returns A structured SystemContext validated against the domain schema.
    */
-  scan(workingDir: string, llm: LlmClient): Promise<Result<SystemContext>>;
+  scan(workingDir: string, llm: LlmClient, commitSha?: string): Promise<Result<SystemContext>>;
 }

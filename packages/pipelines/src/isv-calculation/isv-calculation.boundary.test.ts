@@ -414,4 +414,166 @@ describe("ISV Calculation Pipeline — boundary test", () => {
     expect(stepIds).not.toContain("code-health-mined");
     expect(stepIds).not.toContain("architecture-scanned");
   });
+
+  it("passes commitSha to architecture scanner", async () => {
+    const scanSpy = vi.fn<ArchitectureScannerPort["scan"]>().mockResolvedValue({
+      success: true,
+      data: {
+        repository: { repositoryId: "test-repo" },
+        systemArchetype: "BACKEND_SERVICE",
+        archetypeReasoning: "Test",
+        techStack: { languages: ["TypeScript"], frameworks: [], infrastructure: [] },
+        adapterCatalog: { inbound: [], outbound: [] },
+        corePatterns: [],
+        domainModels: [],
+      },
+    });
+
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: mockGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: { scan: scanSpy },
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    await pipeline.run("PROJ-42", {});
+
+    // Third argument should be the commitSha from the working tree
+    expect(scanSpy).toHaveBeenCalledOnce();
+    expect(scanSpy.mock.calls[0][2]).toBe("abc123");
+  });
+
+  it("abort signal before parallel block returns PIPELINE_ABORTED", async () => {
+    const controller = new AbortController();
+    // Abort immediately after ticket fetch + checkout
+    const gitClient = {
+      ...mockGitClient,
+      checkoutAll: vi.fn().mockImplementation(async () => {
+        controller.abort();
+        return new Map([["test-repo", mockWorkingTree]]);
+      }),
+    } satisfies GitClient;
+
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: mockStatusQuoMiner,
+      architectureScanner: mockArchScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const result = await pipeline.run("PROJ-42", {}, undefined, controller.signal);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe("PIPELINE_ABORTED");
+    }
+  });
+
+  it("handles multi-repo parallel processing correctly", async () => {
+    const tree1: WorkingTree = {
+      repositoryId: "repo-a",
+      workingDir: "/tmp/work/repo-a",
+      commitSha: "sha-a",
+    };
+    const tree2: WorkingTree = {
+      repositoryId: "repo-b",
+      workingDir: "/tmp/work/repo-b",
+      commitSha: "sha-b",
+    };
+
+    const multiRepoGitClient = {
+      repositoryIds: vi.fn().mockReturnValue(["repo-a", "repo-b"]),
+      checkoutAll: vi.fn().mockResolvedValue(
+        new Map([
+          ["repo-a", tree1],
+          ["repo-b", tree2],
+        ]),
+      ),
+      checkout: vi.fn(),
+      release: vi.fn().mockResolvedValue(undefined),
+      releaseAll: vi.fn().mockResolvedValue(undefined),
+      logStats: vi.fn(),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    } satisfies GitClient;
+
+    const multiRepoMiner: StatusQuoMinerPort = {
+      mine: vi.fn<StatusQuoMinerPort["mine"]>().mockImplementation(async (trees) => ({
+        success: true,
+        data: trees.map((t) => ({
+          repository: { repositoryId: t.repositoryId },
+          timestamp: "2025-01-01T00:00:00.000Z",
+          structuralFacts: {
+            volume: { totalLinesOfCode: 10000, totalFiles: 100 },
+            entryPoints: { controllers: 5, views: 0 },
+            gitHotspots: [],
+          },
+          healthScores: {
+            complexity: {
+              avgCyclomaticComplexity: 3,
+              duplicationPercentage: 2,
+              godClassCount: 0,
+            },
+            testHealth: {
+              coveragePercentage: 80,
+              outdatedDependencies: 0,
+              deadCodeFiles: 0,
+            },
+          },
+        })),
+      })),
+    };
+
+    const multiRepoScanner: ArchitectureScannerPort = {
+      scan: vi.fn<ArchitectureScannerPort["scan"]>().mockImplementation(
+        async (workingDir) => ({
+          success: true,
+          data: {
+            repository: {
+              repositoryId: workingDir.split("/").pop() ?? "unknown",
+            },
+            systemArchetype: "BACKEND_SERVICE" as const,
+            archetypeReasoning: "Test",
+            techStack: { languages: ["TypeScript"], frameworks: [], infrastructure: [] },
+            adapterCatalog: { inbound: [], outbound: [] },
+            corePatterns: [],
+            domainModels: [],
+          },
+        }),
+      ),
+    };
+
+    const pipeline = createIsvCalculationPipeline({
+      ticketClient: mockTicketClient,
+      gitClient: multiRepoGitClient,
+      llmClient: mockLlm,
+      statusQuoMiner: multiRepoMiner,
+      architectureScanner: multiRepoScanner,
+      gapAnalyzer: mockGapAnalyzer,
+      valuation: mockValuation,
+    });
+
+    const events: PipelineProgressEvent[] = [];
+    const result = await pipeline.run("PROJ-42", {}, (event) => events.push(event));
+    expect(result.success).toBe(true);
+
+    // Should have 2 architecture-scanned events
+    const archEvents = events.filter((e) => e.step === "architecture-scanned");
+    expect(archEvents).toHaveLength(2);
+    expect(archEvents[0].detail).toBe("repo 1 of 2 [repo-a]");
+    expect(archEvents[1].detail).toBe("repo 2 of 2 [repo-b]");
+
+    // totalSteps = 7 + 2 repos = 9
+    expect(events[events.length - 1].totalSteps).toBe(9);
+    expect(events[events.length - 1].completedSteps).toBe(9);
+
+    // Both repos should have been scanned
+    expect(multiRepoScanner.scan).toHaveBeenCalledTimes(2);
+    // Miner called per-repo (each with single tree)
+    expect(multiRepoMiner.mine).toHaveBeenCalledTimes(2);
+  });
 });
