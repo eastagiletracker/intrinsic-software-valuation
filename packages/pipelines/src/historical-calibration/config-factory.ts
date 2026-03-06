@@ -161,6 +161,7 @@ export async function createHistoricalCalibrationFromConfig(
       provider:
         (llmConfig.provider as "github-copilot-cli") ?? "github-copilot-cli",
       timeoutMs: llmConfig.timeoutMs as number | undefined,
+      stallTimeoutMs: llmConfig.stallTimeoutMs as number | undefined,
       cwd: llmConfig.cwd as string | undefined,
     });
 

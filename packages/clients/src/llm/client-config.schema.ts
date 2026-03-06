@@ -22,6 +22,16 @@ export const LlmClientConfigSchema = z
         "Timeout in milliseconds for LLM invocations. " +
           "Defaults to 120 000 (2 minutes) if not specified.",
       ),
+    stallTimeoutMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Stall detection timeout in milliseconds. If the LLM process " +
+          "produces no output for this duration it is killed early. " +
+          "Defaults to 60 000 (1 minute). Set to 0 to disable.",
+      ),
     cwd: z
       .string()
       .min(1)

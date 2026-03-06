@@ -50,4 +50,28 @@ describe("LlmClientConfigSchema", () => {
       LlmClientConfigSchema.parse({ ...valid, cwd: "" }),
     ).toThrow();
   });
+
+  it("accepts config with optional stallTimeoutMs", () => {
+    const config = { ...valid, stallTimeoutMs: 30000 };
+    const result = LlmClientConfigSchema.parse(config);
+    expect(result.stallTimeoutMs).toBe(30000);
+  });
+
+  it("accepts stallTimeoutMs of 0 (disabled)", () => {
+    const config = { ...valid, stallTimeoutMs: 0 };
+    const result = LlmClientConfigSchema.parse(config);
+    expect(result.stallTimeoutMs).toBe(0);
+  });
+
+  it("rejects negative stallTimeoutMs", () => {
+    expect(() =>
+      LlmClientConfigSchema.parse({ ...valid, stallTimeoutMs: -1 }),
+    ).toThrow();
+  });
+
+  it("rejects non-integer stallTimeoutMs", () => {
+    expect(() =>
+      LlmClientConfigSchema.parse({ ...valid, stallTimeoutMs: 1.5 }),
+    ).toThrow();
+  });
 });

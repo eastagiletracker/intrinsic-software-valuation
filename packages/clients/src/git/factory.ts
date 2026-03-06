@@ -108,7 +108,11 @@ class DefaultGitClient implements GitClient {
   async releaseAll(): Promise<void> {
     const trees = Array.from(this.activeWorktrees);
     for (const tree of trees) {
-      await this.port.release(tree);
+      try {
+        await this.port.release(tree);
+      } catch {
+        // Continue releasing remaining worktrees even if one fails
+      }
       this.activeWorktrees.delete(tree);
     }
   }

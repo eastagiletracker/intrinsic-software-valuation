@@ -795,7 +795,11 @@ class HistoricalCalibrationPipeline
     } finally {
       // Per-cluster release: release only this cluster's trees
       for (const tree of checkedOutTrees) {
-        await this.gitClient.release(tree);
+        try {
+          await this.gitClient.release(tree);
+        } catch {
+          // Best-effort: don't let cleanup failure propagate
+        }
       }
     }
   }

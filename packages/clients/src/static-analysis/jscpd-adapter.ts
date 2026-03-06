@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,6 +46,9 @@ export function parseJscpdOutput(json: string): JscpdResult {
 export async function runJscpd(directory: string): Promise<JscpdResult> {
   const outDir = join(tmpdir(), `jscpd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   try {
+    // Verify the target directory exists before invoking jscpd
+    await access(directory);
+
     await execa("jscpd", [
       directory,
       "--reporters",
@@ -55,8 +58,15 @@ export async function runJscpd(directory: string): Promise<JscpdResult> {
     ], { reject: false });
 
     const reportPath = join(outDir, "jscpd-report.json");
-    const json = await readFile(reportPath, "utf-8");
-    return parseJscpdOutput(json);
+
+    // jscpd may not produce a report when the directory is empty or
+    // contains too few analysable files. Return 0% duplication in that case.
+    try {
+      const json = await readFile(reportPath, "utf-8");
+      return parseJscpdOutput(json);
+    } catch {
+      return { duplicationPercentage: 0 };
+    }
   } finally {
     await rm(outDir, { recursive: true, force: true });
   }

@@ -189,11 +189,13 @@ export class GitWorktreeAdapter implements GitPort {
       );
     }
 
-    // Create a worktree directory
+    // Create a worktree directory with a unique suffix to prevent collisions
+    // when multiple concurrent clusters resolve to the same commit.
     const shortSha = sha.slice(0, 8);
+    const uniqueSuffix = Math.random().toString(36).slice(2, 8);
     const worktreeDir = join(
       workBasePath,
-      `${repo.repositoryId}-${shortSha}`,
+      `${repo.repositoryId}-${shortSha}-${uniqueSuffix}`,
     );
 
     try {
@@ -203,11 +205,6 @@ export class GitWorktreeAdapter implements GitPort {
       await execa("git", ["worktree", "prune"], { cwd: repo.repoPath }).catch(
         () => {},
       );
-
-      // Clean up stale worktree from a previous interrupted run
-      if (await this.dirExists(worktreeDir)) {
-        await this.cleanupWorktree(repo.repoPath, worktreeDir);
-      }
 
       await execa("git", ["worktree", "add", "--detach", worktreeDir, sha], {
         cwd: repo.repoPath,
@@ -245,8 +242,13 @@ export class GitWorktreeAdapter implements GitPort {
         cwd: bareRepoPath,
       });
     } catch {
-      // Fallback: force-remove the directory if worktree remove fails
-      await rm(tree.workingDir, { recursive: true, force: true });
+      // Fallback: force-remove with retries to handle macOS ENOTEMPTY
+      await rm(tree.workingDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 200,
+      }).catch(() => {});
     }
   }
 
@@ -302,13 +304,24 @@ export class GitWorktreeAdapter implements GitPort {
     bareRepoPath: string,
     worktreeDir: string,
   ): Promise<void> {
+    // Remove any stale index.lock files that block git operations
+    const lockGlob = join(bareRepoPath, "worktrees", "*", "index.lock");
+    await rm(lockGlob, { force: true }).catch(() => {});
+
     try {
       await execa("git", ["worktree", "remove", "--force", worktreeDir], {
         cwd: bareRepoPath,
       });
     } catch {
-      // Best-effort: remove directory directly
-      await rm(worktreeDir, { recursive: true, force: true }).catch(() => {});
+      // Retry rm with delay to handle macOS ENOTEMPTY (Spotlight / FSEvents)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await rm(worktreeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+          return;
+        } catch {
+          if (attempt < 2) await delay(300);
+        }
+      }
     }
   }
 }
@@ -320,4 +333,8 @@ export class GitWorktreeAdapter implements GitPort {
 function messageFrom(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

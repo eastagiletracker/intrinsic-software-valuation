@@ -15,6 +15,7 @@ function resolveAdapter(config: LlmClientConfig): LlmPort {
     case "github-copilot-cli":
       return new GithubCopilotCliAdapter({
         timeoutMs: config.timeoutMs,
+        stallTimeoutMs: config.stallTimeoutMs,
         cwd: config.cwd,
       });
     default:
