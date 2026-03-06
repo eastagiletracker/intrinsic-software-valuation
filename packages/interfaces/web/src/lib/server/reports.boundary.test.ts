@@ -165,6 +165,23 @@ beforeAll(async () => {
     ),
   );
 
+  // Timestamp-based filename variant used by real calibration runs
+  await writeFile(
+    join(
+      calibrationDir,
+      "report-2024-11-27T14:07:42.000Z_2025-12-04T07:51:09.000Z.json",
+    ),
+    JSON.stringify(
+      makeReport({
+        periodStart: "2024-11",
+        periodEnd: "2025-12",
+        sampleSize: 19,
+        rSquared: 0.61,
+        fitAssessment: "moderate",
+      }),
+    ),
+  );
+
   // Write a non-report file that should be ignored
   await writeFile(
     join(calibrationDir, "not-a-report.json"),
@@ -204,10 +221,11 @@ describe("calibration report server utilities", () => {
     it("lists multiple reports for the same project sorted by periodEnd descending", async () => {
       const reports = await listCalibrationReports(projectSlug);
 
-      expect(reports).toHaveLength(2);
+      expect(reports).toHaveLength(3);
       // Newest first
       expect(reports[0].periodEnd).toBe("2026-01");
-      expect(reports[1].periodEnd).toBe("2025-06");
+      expect(reports[1].periodEnd).toBe("2025-12");
+      expect(reports[2].periodEnd).toBe("2025-06");
     });
 
     it("extracts correct metadata from each report", async () => {
@@ -227,6 +245,17 @@ describe("calibration report server utilities", () => {
       expect(older).toBeDefined();
       expect(older!.sampleSize).toBe(15);
       expect(older!.fitAssessment).toBe("strong");
+
+      const timestamped = reports.find(
+        (r) =>
+          r.slug ===
+          "report-2024-11-27T14:07:42.000Z_2025-12-04T07:51:09.000Z",
+      );
+      expect(timestamped).toBeDefined();
+      expect(timestamped!.periodStart).toBe("2024-11");
+      expect(timestamped!.periodEnd).toBe("2025-12");
+      expect(timestamped!.sampleSize).toBe(19);
+      expect(timestamped!.fitAssessment).toBe("moderate");
     });
 
     it("ignores non-report files", async () => {
@@ -265,6 +294,18 @@ describe("calibration report server utilities", () => {
       expect(report).not.toBeNull();
       expect(report!.result.periodStart).toBe("2024-07");
       expect(report!.result.sampleSize).toBe(15);
+    });
+
+    it("reads a timestamp-based report by slug", async () => {
+      const report = await readCalibrationReport(
+        projectSlug,
+        "report-2024-11-27T14:07:42.000Z_2025-12-04T07:51:09.000Z",
+      );
+
+      expect(report).not.toBeNull();
+      expect(report!.result.periodStart).toBe("2024-11");
+      expect(report!.result.periodEnd).toBe("2025-12");
+      expect(report!.result.sampleSize).toBe(19);
     });
 
     it("returns null for non-existent report", async () => {

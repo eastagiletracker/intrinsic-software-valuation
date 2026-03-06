@@ -2,7 +2,7 @@
  * Server-side utility for scanning calibration report files.
  *
  * Reports are read from:
- *   data/<projectSlug>/calibration/report-YYYY-MM_YYYY-MM.json
+ *   data/<projectSlug>/calibration/report-<periodStart>_<periodEnd>.json
  *
  * This module is read-only — it never modifies report files.
  */
@@ -13,12 +13,12 @@ import { join } from "node:path";
 import type { CalibrationRunOutput } from "@isv/domain";
 import { dataDir } from "./paths.js";
 
-/** Pattern that matches canonical report filenames. */
-const REPORT_PATTERN = /^report-(\d{4}-\d{2})_(\d{4}-\d{2})\.json$/;
+/** Pattern that matches report files while preventing unrelated JSON files. */
+const REPORT_PATTERN = /^report-(.+)_(.+)\.json$/;
 
 /** Summary metadata for one report, used in the index listing (AC-2). */
 export interface CalibrationReportEntry {
-  /** Filename without extension, e.g. "report-2025-01_2026-01" */
+  /** Filename without extension, e.g. "report-2025-01_2026-01" or timestamp variants. */
   slug: string;
   /** Full filename, e.g. "report-2025-01_2026-01.json" */
   filename: string;
@@ -65,7 +65,6 @@ export async function listCalibrationReports(
     const match = REPORT_PATTERN.exec(filename);
     if (!match) continue;
 
-    const [, periodStart, periodEnd] = match;
     const filePath = join(dir, filename);
 
     try {
@@ -79,8 +78,9 @@ export async function listCalibrationReports(
       reports.push({
         slug: filename.replace(/\.json$/, ""),
         filename,
-        periodStart,
-        periodEnd,
+        // Trust report payload values so both YYYY-MM and ISO timestamp filenames work.
+        periodStart: result.periodStart,
+        periodEnd: result.periodEnd,
         createdAt: fileStat.mtime.toISOString(),
         sampleSize: result.sampleSize,
         fitAssessment: result.formulaValidation.fitAssessment,

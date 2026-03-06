@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ params }) => {
   if (!/^[\w-]+$/.test(project)) {
     error(400, "Invalid project slug");
   }
-  if (!/^report-\d{4}-\d{2}_\d{4}-\d{2}$/.test(reportSlug)) {
+  if (!/^report-[A-Za-z0-9:.-]+_[A-Za-z0-9:.-]+$/.test(reportSlug)) {
     error(400, "Invalid report slug");
   }
 
