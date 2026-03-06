@@ -32,6 +32,12 @@ export function parseDateToIso(value: unknown): string {
       const [, dd, mm, yyyy] = match;
       return new Date(`${yyyy}-${mm}-${dd}T00:00:00Z`).toISOString();
     }
+    // Teamleader "Project Report" format: DD/MM/YYYY
+    const slashMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value.trim());
+    if (slashMatch) {
+      const [, dd, mm, yyyy] = slashMatch;
+      return new Date(`${yyyy}-${mm}-${dd}T00:00:00Z`).toISOString();
+    }
     // Fallback
     const d = new Date(value);
     if (!isNaN(d.getTime())) return d.toISOString();

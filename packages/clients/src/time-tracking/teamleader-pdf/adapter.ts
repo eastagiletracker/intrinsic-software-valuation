@@ -22,11 +22,14 @@ import {
 /** Minimum duration (hours) to retain after L1 cleaning. */
 const MIN_DURATION_HOURS = 0.1;
 
-/** Date pattern: DD-MM-YYYY */
-const DATE_REGEX = /^\d{2}-\d{2}-\d{4}$/;
+/** Date pattern: DD-MM-YYYY or MM/DD/YYYY */
+const DATE_REGEX = /^\d{2}[-/]\d{2}[-/]\d{4}$/;
 
 /** Duration pattern: HH:MM */
 const HH_MM_REGEX = /^(\d+):(\d{2})$/;
+
+/** Duration pattern: Xh Ym, Xh, Ym (Teamleader Arbeitsaufwand column) */
+const HM_TEXT_REGEX = /^(?:(\d+)h)?\s*(?:(\d+)m)?$/
 
 /**
  * Header patterns used to detect the column header row in extracted text.
@@ -34,7 +37,7 @@ const HH_MM_REGEX = /^(\d+):(\d{2})$/;
  */
 const HEADER_LABELS: Record<string, (text: string) => boolean> = {
   datum: (t) => t === "Datum",
-  dauer: (t) => t.startsWith("Dauer"),
+  dauer: (t) => t.startsWith("Dauer") || t === "Arbeitsaufwand",
   beschreibung: (t) => t === "Beschreibung",
 };
 
@@ -138,8 +141,14 @@ function detectColumns(items: TextItem[]): ColumnBounds | undefined {
     }
   }
 
-  if (datumX === undefined || dauerX === undefined || beschreibungX === undefined) {
+  if (datumX === undefined || beschreibungX === undefined) {
     return undefined;
+  }
+
+  // If Dauer/Arbeitsaufwand column is not found, it may not exist in this
+  // variant. Set dauerX to a sentinel so callers know to look elsewhere.
+  if (dauerX === undefined) {
+    dauerX = -1;
   }
 
   // Find the next column after beschreibung by looking for header items
@@ -185,6 +194,14 @@ export function parseDuration(value: string): number {
   if (hhMmMatch) {
     const hours = parseInt(hhMmMatch[1], 10);
     const minutes = parseInt(hhMmMatch[2], 10);
+    return hours + minutes / 60;
+  }
+
+  // Xh Ym / Xh / Ym format (e.g. "3h 45m", "2h", "15m")
+  const hmMatch = HM_TEXT_REGEX.exec(trimmed);
+  if (hmMatch && (hmMatch[1] !== undefined || hmMatch[2] !== undefined)) {
+    const hours = hmMatch[1] ? parseInt(hmMatch[1], 10) : 0;
+    const minutes = hmMatch[2] ? parseInt(hmMatch[2], 10) : 0;
     return hours + minutes / 60;
   }
 
@@ -237,17 +254,28 @@ function extractRows(items: TextItem[], cols: ColumnBounds): RawRow[] {
       (item) => item.y <= dateItem.y + 2 && item.y > nextDateY,
     );
 
-    // Extract duration: items in dauer column x-range
-    const dauerItems = rowItems.filter(
-      (item) =>
-        item.x >= cols.dauerX - TOLERANCE &&
-        item.x < cols.beschreibungX - TOLERANCE,
-    );
+    // Extract duration: items in dauer/arbeitsaufwand column x-range
+    let dauerItems: TextItem[];
+    if (cols.dauerX > cols.beschreibungX) {
+      // Arbeitsaufwand column is to the right of Beschreibung
+      dauerItems = rowItems.filter(
+        (item) => item.x >= cols.dauerX - TOLERANCE,
+      );
+    } else if (cols.dauerX >= 0) {
+      // Dauer column is between Datum and Beschreibung
+      dauerItems = rowItems.filter(
+        (item) =>
+          item.x >= cols.dauerX - TOLERANCE &&
+          item.x < cols.beschreibungX - TOLERANCE,
+      );
+    } else {
+      dauerItems = [];
+    }
     const dauer =
       dauerItems
         .map((item) => item.str.trim())
         .filter((s) => s.length > 0)
-        .join("") || "";
+        .join(" ") || "";
 
     // Extract description: items in beschreibung column x-range
     const beschreibungItems = rowItems
