@@ -352,5 +352,51 @@ describe("Calibration Service — boundary test", () => {
       expect(result.data.sampleSize).toBe(2);
       expect(result.data.shipRateHoursPerIsv).toBeGreaterThan(0);
     });
+
+    it("applies WLS on simple regression path for 3-17 clusters with dataConfidence", () => {
+      const service = createCalibrationService();
+
+      const base = {
+        metadata: { type: "Story" as const, timestampT0: "2025-01-01T00:00:00.000Z" },
+        isvAnalysis: {
+          formulaVersion: "3.4",
+          confidence: 0.9,
+          factors: { A1_Data: 1, A2_UX: 1, B1_Logic: 1, C1_Integration: 1, C2_State: 1, D3_Quality: 1 },
+          breakdown: { poValue: 1, archFactor: 1, qualityMultiplier: 1 },
+        },
+      };
+      const git = { locAdded: 100, locDeleted: 20, filesChanged: 5, distributionEntropy: 0.4, cyclomaticComplexityDelta: 1, changeIntensityScore: 0.2 };
+
+      // 4 clusters — below multivariate threshold (18) but above the 2-point WLS-degenerate guard.
+      // C4 is an outlier pulling the slope up (ISV 40 → 400h) with low confidence.
+      const clusters: ShipUnitCluster[] = [
+        { ...base, clusterId: "C1", ids: ["C1"], isvAnalysis: { ...base.isvAnalysis, isvScore: 10 }, metrics: { totalHours: 20, directMatchHours: 20, splitHours: 0, dataConfidence: "high" as const, gitChanges: git } },
+        { ...base, clusterId: "C2", ids: ["C2"], isvAnalysis: { ...base.isvAnalysis, isvScore: 30 }, metrics: { totalHours: 60, directMatchHours: 55, splitHours: 5, dataConfidence: "high" as const, gitChanges: git } },
+        { ...base, clusterId: "C3", ids: ["C3"], isvAnalysis: { ...base.isvAnalysis, isvScore: 50 }, metrics: { totalHours: 100, directMatchHours: 80, splitHours: 20, dataConfidence: "high" as const, gitChanges: git } },
+        { ...base, clusterId: "C4", ids: ["C4"], isvAnalysis: { ...base.isvAnalysis, isvScore: 40 }, metrics: { totalHours: 400, directMatchHours: 0, splitHours: 400, dataConfidence: "low" as const, gitChanges: { ...git, locAdded: 0, locDeleted: 0, filesChanged: 0 } } },
+      ];
+
+      const withConf = service.calibrate(clusters);
+      expect(withConf.success).toBe(true);
+      if (!withConf.success) return;
+      expect(withConf.data.sampleSize).toBe(4);
+
+      // Compare against unweighted run (strip dataConfidence)
+      const unweightedClusters = clusters.map((c) => ({
+        ...c,
+        metrics: { ...c.metrics, dataConfidence: undefined as unknown as "high" },
+      }));
+      for (const c of unweightedClusters) delete (c.metrics as Record<string, unknown>).dataConfidence;
+      const withoutConf = service.calibrate(unweightedClusters as unknown as ShipUnitCluster[]);
+      expect(withoutConf.success).toBe(true);
+      if (!withoutConf.success) return;
+
+      // The low-confidence outlier (C4: 400h at ISV 40) should be
+      // down-weighted in WLS, producing a meaningfully different ship-rate.
+      expect(withConf.data.shipRateHoursPerIsv).not.toBeCloseTo(
+        withoutConf.data.shipRateHoursPerIsv,
+        1,
+      );
+    });
   });
 });

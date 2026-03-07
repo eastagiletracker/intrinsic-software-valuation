@@ -429,22 +429,6 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
     };
   }
 
-  // Simple scalar Ship Rate (always computed for backward compatibility)
-  const simplePoints = clusters.map((c) => ({
-    x: c.isvAnalysis.isvScore,
-    y: c.metrics.totalHours,
-  }));
-  const simpleResult = linearRegression(simplePoints);
-  const simpleShipRate = Math.max(simpleResult.slope, 0.01);
-
-  // Build feature matrix and response vector
-  const X = clusters.map(extractFeatureRow);
-  const yRaw = clusters.map((c) => c.metrics.totalHours);
-
-  // Log-transform: regress on ln(hours) to reduce right-skew in residuals.
-  // Floor at 0.01 h to avoid ln(0) for clusters with negligible time.
-  const yLog = yRaw.map((h) => Math.log(Math.max(h, 0.01)));
-
   // Derive WLS weights from dataConfidence when available.
   // High-confidence clusters (direct match, has git changes) get full weight;
   // medium/low-confidence clusters are down-weighted to reduce their
@@ -460,6 +444,35 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
         (c) => CONFIDENCE_WEIGHTS[c.metrics.dataConfidence ?? "high"] ?? 1.0,
       )
     : null;
+
+  // Simple scalar Ship Rate (always computed for backward compatibility).
+  // When ≥3 clusters and confidence weights exist, use WLS so low-confidence
+  // outliers have less pull on the ship-rate. For 2 clusters WLS is
+  // degenerate, so fall through to unweighted.
+  const simplePoints = clusters.map((c) => ({
+    x: c.isvAnalysis.isvScore,
+    y: c.metrics.totalHours,
+  }));
+  let simpleShipRate: number;
+  if (weights && clusters.length >= 3) {
+    const Xs = simplePoints.map((p) => [p.x]);
+    const ys = simplePoints.map((p) => p.y);
+    const wlsResult = wlsRegression(Xs, ys, weights);
+    // coefficients[0] = intercept, coefficients[1] = slope
+    simpleShipRate = wlsResult
+      ? Math.max(wlsResult.coefficients[1], 0.01)
+      : Math.max(linearRegression(simplePoints).slope, 0.01);
+  } else {
+    simpleShipRate = Math.max(linearRegression(simplePoints).slope, 0.01);
+  }
+
+  // Build feature matrix and response vector
+  const X = clusters.map(extractFeatureRow);
+  const yRaw = clusters.map((c) => c.metrics.totalHours);
+
+  // Log-transform: regress on ln(hours) to reduce right-skew in residuals.
+  // Floor at 0.01 h to avoid ln(0) for clusters with negligible time.
+  const yLog = yRaw.map((h) => Math.log(Math.max(h, 0.01)));
 
   const minSampleForMultivariate = 2 * FEATURE_NAMES.length; // 18
   const useMultivariate = clusters.length >= minSampleForMultivariate;
@@ -506,21 +519,58 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
       );
     }
   } else {
-    // Sample too small for multivariate — use simple regression on log
-    const logSimple = linearRegression(
-      simplePoints.map((p) => ({ x: p.x, y: Math.log(Math.max(p.y, 0.01)) })),
-    );
-    rSquared = Math.max(0, Math.min(1, logSimple.rSquared));
-    adjustedRSquared = rSquared;
-    const logPredicted = simplePoints.map(
-      (p) => logSimple.slope * p.x + logSimple.intercept,
-    );
-    logResiduals = yLog.map((yi, i) => yi - logPredicted[i]);
-    predicted = logPredicted.map(Math.exp);
-    featureCoefficients = FEATURE_NAMES.map(() => 0);
-    featurePValues = FEATURE_NAMES.map(() => 1);
-    const ssRes = logResiduals.reduce((a, r) => a + r * r, 0);
-    residualStdDev = Math.sqrt(ssRes / Math.max(clusters.length - 2, 1));
+    // Sample too small for multivariate — use simple regression on log.
+    // When ≥3 clusters and confidence weights are available, use WLS via a
+    // 1-column feature matrix so low-confidence points are down-weighted.
+    // For exactly 2 clusters WLS is degenerate (perfect fit), so skip it.
+    const useSimpleWls = weights != null && clusters.length >= 3;
+    if (useSimpleWls) {
+      const Xsimple = simplePoints.map((p) => [p.x]);
+      const yLogSimple = simplePoints.map((p) =>
+        Math.log(Math.max(p.y, 0.01)),
+      );
+      const wls = wlsRegression(Xsimple, yLogSimple, weights);
+      if (wls) {
+        rSquared = Math.max(0, Math.min(1, wls.rSquared));
+        adjustedRSquared = rSquared;
+        logResiduals = wls.residuals;
+        predicted = wls.predicted.map(Math.exp);
+        featureCoefficients = FEATURE_NAMES.map(() => 0);
+        featurePValues = FEATURE_NAMES.map(() => 1);
+        residualStdDev = wls.residualStdDev;
+      } else {
+        // WLS failed — fall through to unweighted below
+        const logSimple = linearRegression(
+          simplePoints.map((p) => ({ x: p.x, y: Math.log(Math.max(p.y, 0.01)) })),
+        );
+        rSquared = Math.max(0, Math.min(1, logSimple.rSquared));
+        adjustedRSquared = rSquared;
+        const logPredicted = simplePoints.map(
+          (p) => logSimple.slope * p.x + logSimple.intercept,
+        );
+        logResiduals = yLog.map((yi, i) => yi - logPredicted[i]);
+        predicted = logPredicted.map(Math.exp);
+        featureCoefficients = FEATURE_NAMES.map(() => 0);
+        featurePValues = FEATURE_NAMES.map(() => 1);
+        const ssRes = logResiduals.reduce((a, r) => a + r * r, 0);
+        residualStdDev = Math.sqrt(ssRes / Math.max(clusters.length - 2, 1));
+      }
+    } else {
+      const logSimple = linearRegression(
+        simplePoints.map((p) => ({ x: p.x, y: Math.log(Math.max(p.y, 0.01)) })),
+      );
+      rSquared = Math.max(0, Math.min(1, logSimple.rSquared));
+      adjustedRSquared = rSquared;
+      const logPredicted = simplePoints.map(
+        (p) => logSimple.slope * p.x + logSimple.intercept,
+      );
+      logResiduals = yLog.map((yi, i) => yi - logPredicted[i]);
+      predicted = logPredicted.map(Math.exp);
+      featureCoefficients = FEATURE_NAMES.map(() => 0);
+      featurePValues = FEATURE_NAMES.map(() => 1);
+      const ssRes = logResiduals.reduce((a, r) => a + r * r, 0);
+      residualStdDev = Math.sqrt(ssRes / Math.max(clusters.length - 2, 1));
+    }
   }
 
   // Real-hours residuals (for reporting, outlier detection)
