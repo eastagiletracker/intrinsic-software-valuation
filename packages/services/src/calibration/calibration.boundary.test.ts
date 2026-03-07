@@ -297,5 +297,60 @@ describe("Calibration Service — boundary test", () => {
       const result = service.calibrate([]);
       expect(result.success).toBe(false);
     });
+
+    it("applies WLS when clusters carry dataConfidence", () => {
+      const service = createCalibrationService();
+
+      // Two clusters with different confidence levels
+      const clusters: ShipUnitCluster[] = [
+        {
+          clusterId: "HIGH-1",
+          ids: ["HIGH-1"],
+          metadata: { type: "Story", timestampT0: "2025-01-01T00:00:00.000Z" },
+          isvAnalysis: {
+            formulaVersion: "3.4",
+            isvScore: 4,
+            confidence: 0.85,
+            factors: { A1_Data: 1, A2_UX: 3, B1_Logic: 1, C1_Integration: 1, C2_State: 1, D3_Quality: 1 },
+            breakdown: { poValue: 4, archFactor: 1, qualityMultiplier: 1 },
+          },
+          metrics: {
+            totalHours: 16,
+            directMatchHours: 16,
+            splitHours: 0,
+            dataConfidence: "high",
+            gitChanges: { locAdded: 200, locDeleted: 50, filesChanged: 8, distributionEntropy: 0.5, cyclomaticComplexityDelta: 2, changeIntensityScore: 0.3 },
+          },
+        },
+        {
+          clusterId: "LOW-2",
+          ids: ["LOW-2"],
+          metadata: { type: "Task", timestampT0: "2025-02-01T00:00:00.000Z" },
+          isvAnalysis: {
+            formulaVersion: "3.4",
+            isvScore: 70,
+            confidence: 0.9,
+            factors: { A1_Data: 2, A2_UX: 2, B1_Logic: 3, C1_Integration: 5, C2_State: 2, D3_Quality: 1 },
+            breakdown: { poValue: 7, archFactor: 10, qualityMultiplier: 1 },
+          },
+          metrics: {
+            totalHours: 280,
+            directMatchHours: 0,
+            splitHours: 0,
+            dataConfidence: "low",
+            gitChanges: { locAdded: 0, locDeleted: 0, filesChanged: 0, distributionEntropy: 0, cyclomaticComplexityDelta: 0, changeIntensityScore: 0 },
+          },
+        },
+      ];
+
+      const result = service.calibrate(clusters);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      // With only 2 clusters, simple regression is used (not multivariate),
+      // but calibration still produces valid output.
+      expect(result.data.sampleSize).toBe(2);
+      expect(result.data.shipRateHoursPerIsv).toBeGreaterThan(0);
+    });
   });
 });

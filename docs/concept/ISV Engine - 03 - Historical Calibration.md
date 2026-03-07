@@ -80,6 +80,20 @@ $$\ln(\text{hours}) = \beta_0 + \beta_1 \cdot A1 + \ldots + \beta_9 \cdot \text{
 - **Predictions** back-transformed via $\exp(\hat{y})$ so that cluster residuals are reported in real hours.
 - The normality test (Shapiro-Wilk / Kolmogorov-Smirnov) runs on **log-space residuals** where the OLS normality assumption applies.
 
+### Weighted Least Squares (WLS)
+
+When clusters carry a `dataConfidence` classification, the regression uses **Weighted Least Squares** instead of plain OLS. Each observation is weighted by how reliable its ground-truth data is:
+
+| `dataConfidence` | Weight | Criteria |
+| --- | --- | --- |
+| `high` | 1.0 | Has Git changes and ≥ 80 % direct-match hours |
+| `medium` | 0.5 | Has Git changes but < 80 % direct-match hours |
+| `low` | 0.2 | Zero Git changes or near-zero hours |
+
+WLS is mathematically equivalent to OLS on the transformed system $\sqrt{w_i} \cdot X_i, \sqrt{w_i} \cdot y_i$. It reduces the influence of noisy data points (e.g. clusters with only split-attributed hours or no code changes) without discarding them entirely. Predictions and residuals are reported in the original (un-weighted) space.
+
+When no dataConfidence is available (legacy data without the field), the system falls back to unweighted OLS.
+
 ## Interface Specifications (Data Contracts)
 
 ### Input: ShipUnitCluster (Schema)

@@ -195,6 +195,69 @@ export function olsRegression(X: number[][], y: number[]): OlsResult | null {
   };
 }
 
+/**
+ * Weighted Least Squares multivariate regression.
+ *
+ * Mathematically equivalent to OLS on the transformed system where each
+ * observation i is scaled by √w_i. Allows down-weighting low-confidence
+ * data points (e.g. clusters with weak time attribution or missing Git data).
+ *
+ * @param X - Feature matrix (n × p), WITHOUT intercept column
+ * @param y - Response vector (n × 1)
+ * @param w - Weight vector (n × 1); all values must be > 0
+ * @returns OLS-style results or null if the system is singular
+ */
+export function wlsRegression(
+  X: number[][],
+  y: number[],
+  w: number[],
+): OlsResult | null {
+  const n = X.length;
+
+  // Transform observations by √w_i
+  const sqrtW = w.map(Math.sqrt);
+  const Xw = X.map((row, i) => row.map((v) => v * sqrtW[i]));
+  const yw = y.map((v, i) => v * sqrtW[i]);
+
+  const result = olsRegression(Xw, yw);
+  if (!result) return null;
+
+  // Predictions and residuals are reported in the original (un-weighted) space
+  const Xa = X.map((row) => [1, ...row]);
+  const predicted = Xa.map((row) =>
+    row.reduce((sum, x, j) => sum + x * result.coefficients[j], 0),
+  );
+  const residuals = y.map((yi, i) => yi - predicted[i]);
+
+  // Recompute R² in original space
+  const meanY = y.reduce((a, b) => a + b, 0) / n;
+  let ssRes = 0;
+  let ssTot = 0;
+  for (let i = 0; i < n; i++) {
+    ssRes += residuals[i] ** 2;
+    ssTot += (y[i] - meanY) ** 2;
+  }
+  const rSquared = ssTot === 0 ? 0 : Math.max(0, Math.min(1, 1 - ssRes / ssTot));
+  const k = X[0].length + 1;
+  const adjustedRSquared =
+    n - k > 0 ? 1 - ((1 - rSquared) * (n - 1)) / (n - k) : 0;
+  const dof = Math.max(n - k, 1);
+  const mse = ssRes / dof;
+  const residualStdDev = Math.sqrt(mse);
+
+  return {
+    coefficients: result.coefficients,
+    rSquared,
+    adjustedRSquared: Math.min(1, adjustedRSquared),
+    residuals,
+    residualStdDev,
+    standardErrors: result.standardErrors,
+    tStatistics: result.tStatistics,
+    pValues: result.pValues,
+    predicted,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Partial correlation
 // ---------------------------------------------------------------------------

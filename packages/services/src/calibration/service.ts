@@ -19,6 +19,7 @@ import type { CalibrationPort } from "./port.js";
 import { FORMULA_VERSION } from "../valuation/formula.js";
 import {
   olsRegression,
+  wlsRegression,
   partialCorrelation,
   linearRegression as simpleLinearRegression,
   shannonEntropy,
@@ -444,6 +445,22 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
   // Floor at 0.01 h to avoid ln(0) for clusters with negligible time.
   const yLog = yRaw.map((h) => Math.log(Math.max(h, 0.01)));
 
+  // Derive WLS weights from dataConfidence when available.
+  // High-confidence clusters (direct match, has git changes) get full weight;
+  // medium/low-confidence clusters are down-weighted to reduce their
+  // influence on the regression fit.
+  const CONFIDENCE_WEIGHTS: Record<string, number> = {
+    high: 1.0,
+    medium: 0.5,
+    low: 0.2,
+  };
+  const hasConfidence = clusters.some((c) => c.metrics.dataConfidence != null);
+  const weights = hasConfidence
+    ? clusters.map(
+        (c) => CONFIDENCE_WEIGHTS[c.metrics.dataConfidence ?? "high"] ?? 1.0,
+      )
+    : null;
+
   const minSampleForMultivariate = 2 * FEATURE_NAMES.length; // 18
   const useMultivariate = clusters.length >= minSampleForMultivariate;
 
@@ -456,7 +473,10 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
   let residualStdDev: number;
 
   if (useMultivariate) {
-    const ols = olsRegression(X, yLog);
+    // Use WLS when confidence weights are available, otherwise plain OLS.
+    const ols = weights
+      ? wlsRegression(X, yLog, weights)
+      : olsRegression(X, yLog);
     if (ols) {
       rSquared = ols.rSquared;
       adjustedRSquared = ols.adjustedRSquared;

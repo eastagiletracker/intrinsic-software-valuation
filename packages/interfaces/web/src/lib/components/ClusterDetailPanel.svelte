@@ -308,7 +308,47 @@
       <div class="flex items-baseline gap-3">
         <span class="text-2xl font-bold text-text">{fmt(cluster.metrics.totalHours)}h</span>
         <span class="text-sm text-text-secondary">total tracked</span>
+        {#if cluster.metrics.dataConfidence}
+          <span class="ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium
+            {cluster.metrics.dataConfidence === 'high' ? 'bg-green-100 text-green-800' :
+             cluster.metrics.dataConfidence === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+             'bg-red-100 text-red-800'}">
+            {cluster.metrics.dataConfidence}
+          </span>
+        {/if}
       </div>
+
+      {#if cluster.metrics.directMatchHours != null || cluster.metrics.splitHours != null}
+        <div class="mt-3 space-y-1.5 text-sm">
+          {#if cluster.metrics.directMatchHours != null}
+            <div class="flex justify-between">
+              <span class="text-text-secondary">Direct Match</span>
+              <span class="tabular-nums">{fmt(cluster.metrics.directMatchHours)}h</span>
+            </div>
+          {/if}
+          {#if cluster.metrics.splitHours != null && cluster.metrics.splitHours > 0}
+            <div class="flex justify-between">
+              <span class="text-text-secondary">Split Attribution</span>
+              <span class="tabular-nums">{fmt(cluster.metrics.splitHours)}h</span>
+            </div>
+          {/if}
+          {#if cluster.metrics.totalHours > 0 && cluster.metrics.directMatchHours != null}
+            {@const pct = (cluster.metrics.directMatchHours / cluster.metrics.totalHours) * 100}
+            <div class="mt-1">
+              <div class="flex justify-between text-xs text-text-secondary">
+                <span>Direct match ratio</span>
+                <span class="tabular-nums">{fmt(pct, 0)}%</span>
+              </div>
+              <div class="mt-1 h-1.5 w-full rounded-full bg-surface-secondary">
+                <div
+                  class="h-1.5 rounded-full {pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-400'}"
+                  style="width: {Math.min(pct, 100)}%"
+                ></div>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
     </section>
 
     <hr class="border-border-light" />

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   olsRegression,
+  wlsRegression,
   partialCorrelation,
   pearsonCorrelation,
   linearRegression,
@@ -143,6 +144,84 @@ describe("statistics — multivariate OLS", () => {
     expect(result.pValues[1]).toBeLessThan(0.05);
     // x2 (index 2) should have higher p-value (not significant)
     expect(result.pValues[2]).toBeGreaterThan(0.01);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weighted Least Squares regression
+// ---------------------------------------------------------------------------
+
+describe("statistics — WLS regression", () => {
+  it("with uniform weights produces the same coefficients as OLS", () => {
+    const X = [
+      [1, 1],
+      [2, 1],
+      [1, 2],
+      [3, 2],
+      [2, 3],
+      [4, 1],
+      [3, 3],
+      [5, 2],
+      [4, 4],
+      [6, 3],
+      [1, 4],
+      [2, 5],
+      [5, 1],
+      [3, 4],
+      [6, 5],
+    ];
+    const y = X.map((row) => 2 * row[0] + 3 * row[1] + 1);
+    const w = X.map(() => 1.0);
+
+    const ols = olsRegression(X, y)!;
+    const wls = wlsRegression(X, y, w)!;
+
+    expect(wls.coefficients[0]).toBeCloseTo(ols.coefficients[0], 4);
+    expect(wls.coefficients[1]).toBeCloseTo(ols.coefficients[1], 4);
+    expect(wls.coefficients[2]).toBeCloseTo(ols.coefficients[2], 4);
+  });
+
+  it("down-weighting outlier reduces its influence on fit", () => {
+    // Clean data: y = 2*x + 1
+    const X = [[1], [2], [3], [4], [5], [6], [7], [8], [9], [10]];
+    const y = X.map((row) => 2 * row[0] + 1);
+    // Inject outlier at index 9
+    y[9] = 100;
+
+    const olsResult = olsRegression(X, y)!;
+    // Down-weight the outlier heavily
+    const w = [1, 1, 1, 1, 1, 1, 1, 1, 1, 0.01];
+    const wlsResult = wlsRegression(X, y, w)!;
+
+    // WLS slope should be closer to the true slope (2.0) than OLS
+    expect(Math.abs(wlsResult.coefficients[1] - 2.0)).toBeLessThan(
+      Math.abs(olsResult.coefficients[1] - 2.0),
+    );
+  });
+
+  it("returns null for singular weighted matrix", () => {
+    const X = [
+      [1, 2],
+      [2, 4],
+      [3, 6],
+    ];
+    const y = [1, 2, 3];
+    const w = [1, 1, 1];
+    expect(wlsRegression(X, y, w)).toBeNull();
+  });
+
+  it("residuals and predictions are in original (unweighted) space", () => {
+    const X = [[1], [2], [3], [4], [5]];
+    const y = [3, 5, 7, 9, 11]; // y = 2x + 1
+    const w = [1, 1, 1, 1, 0.5];
+
+    const result = wlsRegression(X, y, w)!;
+    expect(result.predicted).toHaveLength(5);
+    expect(result.residuals).toHaveLength(5);
+    // For near-perfect data, residuals should be near zero
+    for (const r of result.residuals) {
+      expect(Math.abs(r)).toBeLessThan(1);
+    }
   });
 });
 
