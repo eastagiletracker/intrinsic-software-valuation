@@ -42,6 +42,9 @@
     };
     metrics: {
       totalHours: number;
+      directMatchHours?: number;
+      splitHours?: number;
+      dataConfidence?: "high" | "medium" | "low";
       gitChanges: {
         locAdded: number;
         locDeleted: number;

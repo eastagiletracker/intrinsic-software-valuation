@@ -126,4 +126,102 @@ describe("retryAsync", () => {
 
     expect(attempts).toEqual([1, 2]);
   });
+
+  // -----------------------------------------------------------------------
+  // Stall-timeout retry behaviour
+  // -----------------------------------------------------------------------
+
+  it("uses stallBaseDelayMs for stall errors instead of baseDelayMs", async () => {
+    const delays: number[] = [];
+    const trackingDelay = async (ms: number) => {
+      delays.push(ms);
+    };
+
+    const stallError = Object.assign(new Error("stall"), { code: "STALL" });
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(stallError)
+      .mockResolvedValue("ok");
+
+    await retryAsync(fn, {
+      baseDelayMs: 100,
+      stallBaseDelayMs: 10_000,
+      backoffFactor: 2,
+      isStallError: (err) =>
+        err instanceof Error && (err as any).code === "STALL",
+      delay: trackingDelay,
+    });
+
+    expect(delays).toEqual([10_000]); // stallBaseDelayMs, not baseDelayMs
+  });
+
+  it("limits stall retries to stallMaxRetries", async () => {
+    const stallError = Object.assign(new Error("stall"), { code: "STALL" });
+    const fn = vi.fn().mockRejectedValue(stallError);
+
+    await expect(
+      retryAsync(fn, {
+        maxRetries: 10,
+        stallMaxRetries: 2,
+        delay: noDelay,
+        isStallError: (err) =>
+          err instanceof Error && (err as any).code === "STALL",
+      }),
+    ).rejects.toThrow("stall");
+
+    // 1 initial + 2 stall retries = 3 calls
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it("non-stall errors still use baseDelayMs when isStallError is set", async () => {
+    const delays: number[] = [];
+    const trackingDelay = async (ms: number) => {
+      delays.push(ms);
+    };
+
+    const normalError = new Error("transient");
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(normalError)
+      .mockResolvedValue("ok");
+
+    await retryAsync(fn, {
+      baseDelayMs: 100,
+      stallBaseDelayMs: 10_000,
+      backoffFactor: 2,
+      isStallError: () => false,
+      delay: trackingDelay,
+    });
+
+    expect(delays).toEqual([100]); // baseDelayMs, not stallBaseDelayMs
+  });
+
+  it("applies exponential backoff to stall delays", async () => {
+    const delays: number[] = [];
+    const trackingDelay = async (ms: number) => {
+      delays.push(ms);
+    };
+
+    const stallError = Object.assign(new Error("stall"), { code: "STALL" });
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(stallError)
+      .mockRejectedValueOnce(stallError)
+      .mockRejectedValueOnce(stallError)
+      .mockResolvedValue("ok");
+
+    await retryAsync(fn, {
+      stallMaxRetries: 4,
+      stallBaseDelayMs: 1_000,
+      backoffFactor: 2,
+      isStallError: (err) =>
+        err instanceof Error && (err as any).code === "STALL",
+      delay: trackingDelay,
+    });
+
+    // attempt 0 fails → 1000 * 2^0 = 1000
+    // attempt 1 fails → 1000 * 2^1 = 2000
+    // attempt 2 fails → 1000 * 2^2 = 4000
+    expect(delays).toEqual([1_000, 2_000, 4_000]);
+  });
 });

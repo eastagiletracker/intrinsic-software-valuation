@@ -86,6 +86,12 @@ $$\ln(\text{hours}) = \beta_0 + \beta_1 \cdot A1 + \ldots + \beta_9 \cdot \text{
 
 Generated object per story or task after aggregation. The `isvAnalysis` block carries the **full factor composition** (all six input factors, intermediate breakdown, and formula version) alongside the final score. This preserves per-factor granularity for statistical validation during calibration without altering the static ISV formula itself.
 
+The `metrics` block includes an **attribution breakdown** (`directMatchHours`, `splitHours`) showing how the total hours were composed, and a **data confidence classification** (`high`, `medium`, `low`) that flags clusters with weak attribution or missing Git data:
+
+- **high** — has Git changes and ≥80 % of hours from direct or cluster match attribution.
+- **medium** — has Git changes but <80 % direct-match hours (significant split attribution).
+- **low** — zero Git changes or near-zero hours; weak ground truth for regression.
+
 ```json
 {
   "clusterId": "PROJ-123",
@@ -115,6 +121,9 @@ Generated object per story or task after aggregation. The `isvAnalysis` block ca
   },
   "metrics": {
     "totalHours": 32.5,
+    "directMatchHours": 28.0,
+    "splitHours": 4.5,
+    "dataConfidence": "high",
     "gitChanges": {
       "locAdded": 450,
       "locDeleted": 120,
@@ -190,7 +199,7 @@ The distribution of residuals is tested for approximate normality. A well-fittin
 Clusters with |standardized residual| > 2 are flagged as **statistical outliers**. The calibration reports:
 
 - Number and percentage of outlier clusters.
-- The outlier cluster IDs with their residual values and a human-readable reason label (e.g. `HIGH_KBV_RATIO`, `ZERO_GIT_CHANGES`, `EXTREME_HOURS`).
+- The outlier cluster IDs with their residual values and a human-readable reason label (e.g. `UNCLASSIFIED`, `ZERO_GIT_CHANGES`, `EXTREME_HOURS`, `NEAR_ZERO_HOURS`).
 - Ship Rate is reported **both with and without outliers** so that the impact of extreme data points is transparent.
 
 ### Confidence and Reliability Summary

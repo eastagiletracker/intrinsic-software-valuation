@@ -35,6 +35,9 @@ function makeCluster(id: string): ShipUnitCluster {
     },
     metrics: {
       totalHours: 16,
+      directMatchHours: 16,
+      splitHours: 0,
+      dataConfidence: "high",
       gitChanges: {
         locAdded: 100,
         locDeleted: 50,
@@ -159,5 +162,59 @@ describe("CheckpointWriter / CheckpointReader", () => {
     // Should still load the valid entry
     expect(loaded.size).toBe(1);
     expect(loaded.has("PROJ-1")).toBe(true);
+  });
+
+  it("10 concurrent appends all complete without data loss", async () => {
+    const filePath = join(testDir, "concurrent.jsonl");
+    const writer = new CheckpointWriter(filePath);
+
+    // Fire 10 appends in parallel — the mutex must serialize them.
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        writer.append(`C-${i}`, makeCluster(`C-${i}`)),
+      ),
+    );
+
+    const loaded = await CheckpointReader.load(filePath);
+    expect(loaded.size).toBe(10);
+    for (let i = 0; i < 10; i++) {
+      expect(loaded.has(`C-${i}`)).toBe(true);
+    }
+
+    // File should have exactly 10 valid JSONL lines.
+    const raw = await readFile(filePath, "utf-8");
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(10);
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+  });
+
+  it("writeFile failure propagates error and does not leave stale tmp file", async () => {
+    const filePath = join(testDir, "fail-write.jsonl");
+    const writer = new CheckpointWriter(filePath);
+
+    // Write one entry successfully first.
+    await writer.append("OK-1", makeCluster("OK-1"));
+
+    // Make the directory read-only so the next writeFile fails.
+    const { chmod } = await import("node:fs/promises");
+    await chmod(testDir, 0o555);
+
+    // A new nested path will fail on mkdir or writeFile.
+    const failWriter = new CheckpointWriter(
+      join(testDir, "no-perms", "fail.jsonl"),
+    );
+
+    await expect(
+      failWriter.append("FAIL-1", makeCluster("FAIL-1")),
+    ).rejects.toThrow();
+
+    // Restore permissions for cleanup.
+    await chmod(testDir, 0o755);
+
+    // The original file should be untouched.
+    const loaded = await CheckpointReader.load(filePath);
+    expect(loaded.size).toBe(1);
   });
 });

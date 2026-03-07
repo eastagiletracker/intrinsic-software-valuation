@@ -15,7 +15,7 @@ export const OutlierEntrySchema = z
     reason: z
       .string()
       .describe(
-        "Human-readable reason label, e.g. HIGH_KBV_RATIO, ZERO_GIT_CHANGES, EXTREME_HOURS",
+        "Human-readable reason label, e.g. UNCLASSIFIED, ZERO_GIT_CHANGES, EXTREME_HOURS, NEAR_ZERO_HOURS",
       ),
   })
   .describe("A single outlier entry from calibration.");

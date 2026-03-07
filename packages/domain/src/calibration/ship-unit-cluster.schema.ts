@@ -92,12 +92,35 @@ export const ShipUnitClusterSchema = z
             "Sum of all attributed hours across all ticket IDs in the cluster. " +
               "Ground truth for calibration regression.",
           ),
+        directMatchHours: z
+          .number()
+          .nonnegative()
+          .describe(
+            "Hours attributed via direct match or cluster match (single-cluster, " +
+              "high-confidence attribution).",
+          ),
+        splitHours: z
+          .number()
+          .nonnegative()
+          .describe(
+            "Hours attributed via multi-ID split across multiple clusters. " +
+              "Lower confidence than direct match.",
+          ),
+        dataConfidence: z
+          .enum(["high", "medium", "low"])
+          .describe(
+            "Data confidence classification for this cluster. " +
+              "'high' = has git changes and ≥80% direct-match hours. " +
+              "'medium' = has git changes but <80% direct-match. " +
+              "'low' = zero git changes or near-zero hours.",
+          ),
         gitChanges: GitChangesSchema.describe(
           "Aggregated Git change metrics for this cluster",
         ),
       })
       .describe(
-        "Measurement data: actual time invested and code change metrics",
+        "Measurement data: actual time invested, attribution breakdown, " +
+          "data confidence, and code change metrics",
       ),
   })
   .describe(

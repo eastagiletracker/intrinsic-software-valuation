@@ -219,6 +219,9 @@ describe("Calibration Service — boundary test", () => {
           },
           metrics: {
             totalHours: 16,
+            directMatchHours: 16,
+            splitHours: 0,
+            dataConfidence: "high",
             gitChanges: {
               locAdded: 200,
               locDeleted: 50,
@@ -252,6 +255,9 @@ describe("Calibration Service — boundary test", () => {
           },
           metrics: {
             totalHours: 280,
+            directMatchHours: 280,
+            splitHours: 0,
+            dataConfidence: "high",
             gitChanges: {
               locAdded: 2000,
               locDeleted: 300,

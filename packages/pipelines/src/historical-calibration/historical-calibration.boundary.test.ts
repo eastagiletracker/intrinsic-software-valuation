@@ -643,6 +643,9 @@ describe("Historical Calibration Pipeline — boundary test", () => {
       },
       metrics: {
         totalHours: 16,
+        directMatchHours: 16,
+        splitHours: 0,
+        dataConfidence: "high",
         gitChanges: {
           locAdded: 100,
           locDeleted: 50,

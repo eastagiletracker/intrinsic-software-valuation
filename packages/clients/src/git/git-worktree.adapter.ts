@@ -12,6 +12,7 @@ import type {
   PreparedRepo,
   WorkingTree,
 } from "./port.js";
+import { AsyncMutex } from "./async-mutex.js";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -92,6 +93,18 @@ export function parseLogStats(
  * worktree strategy described in the module README.
  */
 export class GitWorktreeAdapter implements GitPort {
+  /** Per-repo mutexes: serializes checkout/release on the same bare repo. */
+  private readonly repoLocks = new Map<string, AsyncMutex>();
+
+  private lockFor(repoPath: string): AsyncMutex {
+    let lock = this.repoLocks.get(repoPath);
+    if (!lock) {
+      lock = new AsyncMutex();
+      this.repoLocks.set(repoPath, lock);
+    }
+    return lock;
+  }
+
   /**
    * Ensure a repository is available locally as a bare clone.
    *
@@ -198,50 +211,70 @@ export class GitWorktreeAdapter implements GitPort {
       `${repo.repositoryId}-${shortSha}-${uniqueSuffix}`,
     );
 
-    try {
-      await mkdir(workBasePath, { recursive: true });
+    // Serialize prune + add for the same bare repo to prevent race conditions.
+    return this.lockFor(repo.repoPath).run(async () => {
+      try {
+        await mkdir(workBasePath, { recursive: true });
 
-      // Prune stale worktree registrations (e.g. after manual rm -rf of work/)
-      await execa("git", ["worktree", "prune"], { cwd: repo.repoPath }).catch(
-        () => {},
-      );
+        // Prune stale worktree registrations (e.g. after manual rm -rf of work/)
+        await execa("git", ["worktree", "prune"], { cwd: repo.repoPath }).catch(
+          () => {},
+        );
 
-      await execa("git", ["worktree", "add", "--detach", worktreeDir, sha], {
-        cwd: repo.repoPath,
-      });
-    } catch (err) {
-      // Cleanup partial worktree on failure
-      await this.cleanupWorktree(repo.repoPath, worktreeDir);
-      throw gitError(
-        "GIT_WORKTREE_FAILED",
-        `Failed to create worktree for ${repo.repositoryId} at ${sha}: ${messageFrom(err)}`,
-        err,
-      );
-    }
+        await execa("git", ["worktree", "add", "--detach", worktreeDir, sha], {
+          cwd: repo.repoPath,
+        });
+      } catch (err) {
+        // Cleanup partial worktree on failure
+        await this.cleanupWorktree(repo.repoPath, worktreeDir);
+        throw gitError(
+          "GIT_WORKTREE_FAILED",
+          `Failed to create worktree for ${repo.repositoryId} at ${sha}: ${messageFrom(err)}`,
+          err,
+        );
+      }
 
-    return {
-      repositoryId: repo.repositoryId,
-      workingDir: worktreeDir,
-      commitSha: sha,
-    };
+      return {
+        repositoryId: repo.repositoryId,
+        workingDir: worktreeDir,
+        commitSha: sha!,
+      };
+    });
   }
 
   /**
    * Remove a worktree and clean up the temporary directory.
    */
   async release(tree: WorkingTree): Promise<void> {
-    // Find the bare clone path by navigating from the worktree
+    // Discover the bare repo path so we can lock on it.
+    let bareRepoPath: string | undefined;
     try {
       const result = await execa(
         "git",
         ["rev-parse", "--git-common-dir"],
         { cwd: tree.workingDir },
       );
-      const bareRepoPath = result.stdout.trim();
-      await execa("git", ["worktree", "remove", "--force", tree.workingDir], {
-        cwd: bareRepoPath,
-      });
+      bareRepoPath = result.stdout.trim();
     } catch {
+      // If we can't discover the repo path, fall back to unlocked rm.
+    }
+
+    if (bareRepoPath) {
+      await this.lockFor(bareRepoPath).run(async () => {
+        try {
+          await execa("git", ["worktree", "remove", "--force", tree.workingDir], {
+            cwd: bareRepoPath,
+          });
+        } catch {
+          await rm(tree.workingDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 3,
+            retryDelay: 200,
+          }).catch(() => {});
+        }
+      });
+    } else {
       // Fallback: force-remove with retries to handle macOS ENOTEMPTY
       await rm(tree.workingDir, {
         recursive: true,

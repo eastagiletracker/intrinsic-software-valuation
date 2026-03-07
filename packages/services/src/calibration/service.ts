@@ -240,7 +240,7 @@ function classifyOutlierReason(
   if (stdResidual < 0 && cluster.metrics.totalHours < 1) {
     return "NEAR_ZERO_HOURS";
   }
-  return "HIGH_KBV_RATIO";
+  return "UNCLASSIFIED";
 }
 
 // ---------------------------------------------------------------------------

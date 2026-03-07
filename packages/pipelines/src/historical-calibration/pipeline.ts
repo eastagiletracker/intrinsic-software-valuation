@@ -633,6 +633,7 @@ class HistoricalCalibrationPipeline
     attributed: Array<{
       attributedClusterId?: string;
       attributedHours: number;
+      attributionReason: string;
       [key: string]: unknown;
     }>,
     llmGate: LlmGate,
@@ -754,10 +755,23 @@ class HistoricalCalibrationPipeline
       // Valuation (pure computation — not retried)
       const isvResult = this.valuation.calculate(clusterId, factors);
 
-      // Calculate time for this cluster
-      const clusterHours = attributed
-        .filter((a) => a.attributedClusterId === clusterId)
-        .reduce((sum, a) => sum + a.attributedHours, 0);
+      // Calculate time for this cluster (with attribution breakdown)
+      const clusterEntries = attributed.filter(
+        (a) => a.attributedClusterId === clusterId,
+      );
+      const clusterHours = clusterEntries.reduce(
+        (sum, a) => sum + a.attributedHours,
+        0,
+      );
+      let directMatchHours = 0;
+      let splitHours = 0;
+      for (const entry of clusterEntries) {
+        if (entry.attributionReason.startsWith("Multi-ID split:")) {
+          splitHours += entry.attributedHours;
+        } else {
+          directMatchHours += entry.attributedHours;
+        }
+      }
 
       // Git changes aggregation
       let locAdded = 0;
@@ -796,6 +810,17 @@ class HistoricalCalibrationPipeline
         cyclomaticComplexityDelta,
       );
 
+      // Classify data confidence
+      const hasGitChanges = locAdded > 0 || locDeleted > 0 || filesChanged > 0;
+      const directMatchRatio =
+        clusterHours > 0 ? directMatchHours / clusterHours : 0;
+      const dataConfidence: "high" | "medium" | "low" =
+        !hasGitChanges || clusterHours < 1
+          ? "low"
+          : directMatchRatio >= 0.8
+            ? "high"
+            : "medium";
+
       const shipUnit: ShipUnitCluster = {
         clusterId,
         ids: clusterTickets.map((t) => t.ticketId),
@@ -813,6 +838,9 @@ class HistoricalCalibrationPipeline
         },
         metrics: {
           totalHours: clusterHours,
+          directMatchHours,
+          splitHours,
+          dataConfidence,
           gitChanges: {
             locAdded,
             locDeleted,

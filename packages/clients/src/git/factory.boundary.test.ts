@@ -56,7 +56,7 @@ describe("GitClient — concurrent worktree lifecycle", () => {
     }
   });
 
-  it("parallel checkoutAll calls do not collide", async () => {
+  it("parallel checkoutAll calls do not collide", { timeout: 30_000 }, async () => {
     const client = await makeClient();
     const before = new Date().toISOString();
 

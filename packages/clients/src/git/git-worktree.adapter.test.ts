@@ -170,7 +170,7 @@ describe("GitWorktreeAdapter — worktree isolation", () => {
     }
   });
 
-  it("parallel checkouts of the same commit do not collide", async () => {
+  it("parallel checkouts of the same commit do not collide", { timeout: 30_000 }, async () => {
     const repo = await prepareLocalRepo();
     const before = new Date().toISOString();
 

@@ -105,7 +105,7 @@ As a **Technical Product Owner / ISV Analyst**, I want **to run a historical cal
 ### AC-9 — Outlier Detection
 
 - [ ] **AC-9.1** Clusters with |standardized residual| > 2 are flagged as outliers
-- [ ] **AC-9.2** Each outlier includes: `clusterId`, `residual`, `standardizedResidual`, and a reason label (e.g. `HIGH_KBV_RATIO`, `ZERO_GIT_CHANGES`, `EXTREME_HOURS`)
+- [ ] **AC-9.2** Each outlier includes: `clusterId`, `residual`, `standardizedResidual`, and a reason label (e.g. `UNCLASSIFIED`, `ZERO_GIT_CHANGES`, `EXTREME_HOURS`, `NEAR_ZERO_HOURS`)
 - [ ] **AC-9.3** The Ship Rate is reported both with all clusters and with outliers excluded
 - [ ] **AC-9.4** The output includes: outlier count, outlier percentage, and the list of outlier entries
 - [ ] **AC-9.5** Tier 1 unit test with a synthetic dataset containing known outliers

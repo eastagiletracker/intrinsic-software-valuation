@@ -2,7 +2,11 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LlmPromptInput } from "../port.js";
-import { GithubCopilotCliAdapter } from "./adapter.js";
+import {
+  GithubCopilotCliAdapter,
+  LLM_STALL_CODE,
+  isLlmStallError,
+} from "./adapter.js";
 
 // ---------------------------------------------------------------------------
 // Mock child_process.spawn
@@ -134,6 +138,28 @@ describe("GithubCopilotCliAdapter", () => {
 
     await expect(p).rejects.toThrow(/stalled.*no output for 2000ms/);
     expect(child.kill).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("sets LLM_STALL code on stall errors, detectable by isLlmStallError", async () => {
+    vi.useFakeTimers();
+    const stallAdapter = new GithubCopilotCliAdapter({
+      timeoutMs: 10_000,
+      stallTimeoutMs: 2000,
+    });
+    const child = fakeChild();
+    mockSpawn.mockReturnValue(child as never);
+
+    const p = stallAdapter.prompt(input);
+    vi.advanceTimersByTime(2000);
+
+    try {
+      await p;
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect((err as any).code).toBe(LLM_STALL_CODE);
+      expect(isLlmStallError(err)).toBe(true);
+    }
     vi.useRealTimers();
   });
 

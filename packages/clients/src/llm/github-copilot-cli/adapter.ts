@@ -3,6 +3,21 @@ import { spawn } from "node:child_process";
 import type { LlmPort, LlmPromptInput, LlmPromptResult } from "../port.js";
 
 // ---------------------------------------------------------------------------
+// Stall error identification
+// ---------------------------------------------------------------------------
+
+/** Machine-readable error code set on stall-timeout errors. */
+export const LLM_STALL_CODE = "LLM_STALL";
+
+/** Type guard: returns true when the error was caused by a stall timeout. */
+export function isLlmStallError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as Error & { code?: string }).code === LLM_STALL_CODE
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -128,13 +143,13 @@ export class GithubCopilotCliAdapter implements LlmPort {
         if (this.stallTimeoutMs > 0) {
           stallTimer = setTimeout(() => {
             child.kill();
-            settle(() =>
-              reject(
-                new Error(
-                  `LLM request stalled (no output for ${this.stallTimeoutMs}ms).`,
-                ),
-              ),
-            );
+            settle(() => {
+              const err = new Error(
+                `LLM request stalled (no output for ${this.stallTimeoutMs}ms).`,
+              );
+              (err as Error & { code: string }).code = "LLM_STALL";
+              reject(err);
+            });
           }, this.stallTimeoutMs);
         }
       };
