@@ -67,6 +67,19 @@ Monetary valuation combines feature value, knowledge value, and general overhead
 
 The target is $R^2 > 0.7$ by including change intensity, complexity, and distribution entropy.
 
+### Log-Transformed Regression
+
+The regression is performed on $\ln(\text{hours})$ rather than raw hours:
+
+$$\ln(\text{hours}) = \beta_0 + \beta_1 \cdot A1 + \ldots + \beta_9 \cdot \text{changeIntensity} + \varepsilon$$
+
+**Rationale**: Effort distributions are typically right-skewed — many small clusters, few large ones. OLS on raw hours produces heavy-tailed, asymmetric residuals that violate normality. The log-transform compresses the scale, stabilises variance, and yields residuals that are closer to normal.
+
+- **Ship Rate** remains a simple linear slope (hours / ISV score), computed outside the log-regression for direct interpretability. The log-transform only affects R², factor diagnostics, and the normality assessment.
+- Clusters with negligible booked time (< 0.01 h) are floored at 0.01 h before transformation to avoid $\ln(0)$.
+- **Predictions** back-transformed via $\exp(\hat{y})$ so that cluster residuals are reported in real hours.
+- The normality test (Shapiro-Wilk / Kolmogorov-Smirnov) runs on **log-space residuals** where the OLS normality assumption applies.
+
 ## Interface Specifications (Data Contracts)
 
 ### Input: ShipUnitCluster (Schema)
