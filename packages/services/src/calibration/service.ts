@@ -438,71 +438,86 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
 
   // Build feature matrix and response vector
   const X = clusters.map(extractFeatureRow);
-  const y = clusters.map((c) => c.metrics.totalHours);
+  const yRaw = clusters.map((c) => c.metrics.totalHours);
+
+  // Log-transform: regress on ln(hours) to reduce right-skew in residuals.
+  // Floor at 0.01 h to avoid ln(0) for clusters with negligible time.
+  const yLog = yRaw.map((h) => Math.log(Math.max(h, 0.01)));
 
   const minSampleForMultivariate = 2 * FEATURE_NAMES.length; // 18
   const useMultivariate = clusters.length >= minSampleForMultivariate;
 
   let rSquared: number;
   let adjustedRSquared: number;
-  let residuals: number[];
-  let predicted: number[];
+  let logResiduals: number[]; // residuals in log-space (for normality test)
+  let predicted: number[];    // back-transformed to real hours
   let featureCoefficients: number[];
   let featurePValues: number[];
   let residualStdDev: number;
 
   if (useMultivariate) {
-    const ols = olsRegression(X, y);
+    const ols = olsRegression(X, yLog);
     if (ols) {
       rSquared = ols.rSquared;
       adjustedRSquared = ols.adjustedRSquared;
-      residuals = ols.residuals;
-      predicted = ols.predicted;
+      logResiduals = ols.residuals;
+      predicted = ols.predicted.map(Math.exp);
       // Skip intercept (index 0)
       featureCoefficients = ols.coefficients.slice(1);
       featurePValues = ols.pValues.slice(1);
       residualStdDev = ols.residualStdDev;
     } else {
       // Fallback to simple regression if OLS fails
-      rSquared = Math.max(0, Math.min(1, simpleResult.rSquared));
-      adjustedRSquared = rSquared;
-      predicted = simplePoints.map(
-        (p) => simpleResult.slope * p.x + simpleResult.intercept,
+      const logSimple = linearRegression(
+        simplePoints.map((p) => ({ x: p.x, y: Math.log(Math.max(p.y, 0.01)) })),
       );
-      residuals = y.map((yi, i) => yi - predicted[i]);
+      rSquared = Math.max(0, Math.min(1, logSimple.rSquared));
+      adjustedRSquared = rSquared;
+      const logPredicted = simplePoints.map(
+        (p) => logSimple.slope * p.x + logSimple.intercept,
+      );
+      logResiduals = yLog.map((yi, i) => yi - logPredicted[i]);
+      predicted = logPredicted.map(Math.exp);
       featureCoefficients = FEATURE_NAMES.map(() => 0);
       featurePValues = FEATURE_NAMES.map(() => 1);
-      const ssRes = residuals.reduce((a, r) => a + r * r, 0);
+      const ssRes = logResiduals.reduce((a, r) => a + r * r, 0);
       residualStdDev = Math.sqrt(
         ssRes / Math.max(clusters.length - 2, 1),
       );
     }
   } else {
-    // Sample too small for multivariate — use simple regression
-    rSquared = Math.max(0, Math.min(1, simpleResult.rSquared));
-    adjustedRSquared = rSquared;
-    predicted = simplePoints.map(
-      (p) => simpleResult.slope * p.x + simpleResult.intercept,
+    // Sample too small for multivariate — use simple regression on log
+    const logSimple = linearRegression(
+      simplePoints.map((p) => ({ x: p.x, y: Math.log(Math.max(p.y, 0.01)) })),
     );
-    residuals = y.map((yi, i) => yi - predicted[i]);
+    rSquared = Math.max(0, Math.min(1, logSimple.rSquared));
+    adjustedRSquared = rSquared;
+    const logPredicted = simplePoints.map(
+      (p) => logSimple.slope * p.x + logSimple.intercept,
+    );
+    logResiduals = yLog.map((yi, i) => yi - logPredicted[i]);
+    predicted = logPredicted.map(Math.exp);
     featureCoefficients = FEATURE_NAMES.map(() => 0);
     featurePValues = FEATURE_NAMES.map(() => 1);
-    const ssRes = residuals.reduce((a, r) => a + r * r, 0);
+    const ssRes = logResiduals.reduce((a, r) => a + r * r, 0);
     residualStdDev = Math.sqrt(ssRes / Math.max(clusters.length - 2, 1));
   }
 
-  // Standardized residuals
+  // Real-hours residuals (for reporting, outlier detection)
+  const realResiduals = yRaw.map((yi, i) => yi - predicted[i]);
+
+  // Standardized residuals (based on log-space for statistical consistency)
   const stdResiduals =
     residualStdDev > 0
-      ? residuals.map((r) => r / residualStdDev)
-      : residuals.map(() => 0);
+      ? logResiduals.map((r) => r / residualStdDev)
+      : logResiduals.map(() => 0);
 
-  // Factor-level diagnostics
+  // Factor-level diagnostics (use log-transformed y for consistency)
   const diagnostics: RegressionFeatureDiagnostic[] = FEATURE_NAMES.map(
     (name, j) => {
       let pc = 0;
       if (useMultivariate && clusters.length >= 3) {
-        pc = partialCorrelation(X, y, j);
+        pc = partialCorrelation(X, yLog, j);
       }
       return {
         feature: name as FeatureName,
@@ -513,12 +528,12 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
     },
   );
 
-  // Cluster residuals
+  // Cluster residuals (report real-hours residuals for human readability)
   const clusterResiduals: ClusterResidual[] = clusters.map((c, i) => ({
     clusterId: c.clusterId,
     actualHours: c.metrics.totalHours,
     predictedHours: predicted[i],
-    residual: residuals[i],
+    residual: realResiduals[i],
     standardizedResidual: stdResiduals[i],
     isOutlier: Math.abs(stdResiduals[i]) > 2,
   }));
@@ -557,8 +572,9 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
     shipRateExclOutliers = Math.max(exclResult.slope, 0.01);
   }
 
-  // Normality assessment
-  const normalityAssessment = assessNormality(residuals);
+  // Normality assessment — tested on log-space residuals where OLS
+  // normality assumption applies after the response transform.
+  const normalityAssessment = assessNormality(logResiduals);
 
   // Reliability summary
   const effectiveSampleSize = nonOutlierClusters.length;
