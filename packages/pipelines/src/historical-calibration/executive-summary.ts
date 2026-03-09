@@ -17,6 +17,42 @@ Do NOT use markdown formatting, bullet points, or headers — write plain flowin
 Do NOT speculate or add information that is not supported by the provided data.`;
 
 /**
+ * Build the optional cohort analysis section for the LLM prompt.
+ * Returns an empty string when cohort data is absent.
+ */
+function buildCohortSection(output: CalibrationRunOutput): string {
+  if (!output.cohortOverview?.length || !output.cohortCalibrations?.length) {
+    return "";
+  }
+
+  const overviewLines = output.cohortOverview.map(
+    (e) =>
+      `- Cohort ${e.cohort} (${e.label}): ${e.clusterCount} clusters (${e.clusterPct.toFixed(1)}%), ${e.totalHours.toFixed(0)} h (${e.hoursPct.toFixed(1)}%)`,
+  );
+
+  const calLines = output.cohortCalibrations.map((cc) => {
+    const cal = cc.calibration;
+    return `- Tier ${cc.key}: ${cc.sampleSize} clusters, R²=${cal.rSquared.toFixed(4)}, Ship Rate=${cal.shipRateHoursPerIsv.toFixed(2)} h/ISV, fit=${cal.formulaValidation.fitAssessment}`;
+  });
+
+  const primary = output.primaryCohortKey ?? "A+B+C";
+
+  return `
+## Data Cohort Analysis
+Clusters are partitioned by data-confidence into cohorts A (high), B (medium), C (low).
+The primary calibration tier is "${primary}".
+
+### Cohort Distribution
+${overviewLines.join("\n")}
+
+### Tier Calibrations
+${calLines.join("\n")}
+
+Include a paragraph comparing how calibration quality changes across tiers and which tier provides the most reliable Ship Rate.
+`;
+}
+
+/**
  * Build a structured user prompt from the calibration output.
  *
  * Exported for testing.
@@ -76,7 +112,7 @@ export function buildSummaryPrompt(
 
 ## Recommendations
 ${recommendations || "None."}
-
+${buildCohortSection(output)}
 Write the executive summary now.`;
 }
 

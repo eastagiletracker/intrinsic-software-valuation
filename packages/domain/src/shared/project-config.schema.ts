@@ -26,6 +26,16 @@ export const ProjectConfigSchema = z
           "Used to convert the hours-based Ship Rate into € per ISV for reporting. " +
           "Defaults to 1,000 €/day (125 €/h).",
       ),
+    minCohortSampleSize: z
+      .number()
+      .int()
+      .positive()
+      .default(18)
+      .describe(
+        "Minimum number of clusters required for a cohort combination to be " +
+          "selected as the primary calibration tier. Defaults to 18 (= 2× feature count). " +
+          "Lower values allow smaller high-confidence cohorts to drive the result.",
+      ),
   })
   .describe(
     "Project-level ISV configuration. " +

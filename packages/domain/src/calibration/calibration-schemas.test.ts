@@ -9,6 +9,10 @@ import {
   ReliabilitySummarySchema,
   FormulaValidationSchema,
   RegressionFeatureDiagnosticSchema,
+  CohortCodeSchema,
+  CohortKeySchema,
+  CohortOverviewEntrySchema,
+  CohortCalibrationSchema,
 } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -411,5 +415,146 @@ describe("CalibrationRunOutputSchema", () => {
       skippedClusters: [],
     });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts output with cohort fields", () => {
+    const validCohortOverview = [
+      { cohort: "A", label: "High confidence", clusterCount: 50, clusterPct: 40, totalHours: 800, hoursPct: 55 },
+      { cohort: "B", label: "Medium confidence", clusterCount: 20, clusterPct: 16, totalHours: 300, hoursPct: 20.5 },
+      { cohort: "C", label: "Low confidence", clusterCount: 55, clusterPct: 44, totalHours: 350, hoursPct: 24.5 },
+    ];
+
+    const validCohortCalibration = {
+      key: "A",
+      includedCohorts: ["A"],
+      sampleSize: 50,
+      calibration: validCalibrationResult,
+      residuals: [validResidual],
+    };
+
+    const result = CalibrationRunOutputSchema.safeParse({
+      result: validCalibrationResult,
+      clusters: [validCluster],
+      residuals: [validResidual],
+      skippedClusters: [],
+      cohortOverview: validCohortOverview,
+      cohortCalibrations: [validCohortCalibration],
+      primaryCohortKey: "A",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CohortCodeSchema / CohortKeySchema
+// ---------------------------------------------------------------------------
+
+describe("CohortCodeSchema", () => {
+  it.each(["A", "B", "C"])("accepts '%s'", (val) => {
+    expect(CohortCodeSchema.safeParse(val).success).toBe(true);
+  });
+
+  it("rejects unknown code", () => {
+    expect(CohortCodeSchema.safeParse("D").success).toBe(false);
+  });
+});
+
+describe("CohortKeySchema", () => {
+  it.each(["A", "A+B", "A+B+C"])("accepts '%s'", (val) => {
+    expect(CohortKeySchema.safeParse(val).success).toBe(true);
+  });
+
+  it("rejects partial key", () => {
+    expect(CohortKeySchema.safeParse("B+C").success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CohortOverviewEntrySchema
+// ---------------------------------------------------------------------------
+
+describe("CohortOverviewEntrySchema", () => {
+  it("accepts valid overview entry", () => {
+    const result = CohortOverviewEntrySchema.safeParse({
+      cohort: "A",
+      label: "High confidence",
+      clusterCount: 50,
+      clusterPct: 40.5,
+      totalHours: 800,
+      hoursPct: 55,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects negative clusterCount", () => {
+    const result = CohortOverviewEntrySchema.safeParse({
+      cohort: "A",
+      label: "High",
+      clusterCount: -1,
+      clusterPct: 0,
+      totalHours: 0,
+      hoursPct: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects clusterPct > 100", () => {
+    const result = CohortOverviewEntrySchema.safeParse({
+      cohort: "B",
+      label: "Medium",
+      clusterCount: 10,
+      clusterPct: 101,
+      totalHours: 100,
+      hoursPct: 50,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CohortCalibrationSchema
+// ---------------------------------------------------------------------------
+
+describe("CohortCalibrationSchema", () => {
+  it("accepts valid cohort calibration", () => {
+    const result = CohortCalibrationSchema.safeParse({
+      key: "A+B",
+      includedCohorts: ["A", "B"],
+      sampleSize: 70,
+      calibration: validCalibrationResult,
+      residuals: [
+        {
+          clusterId: "PROJ-1",
+          actualHours: 16,
+          predictedHours: 14,
+          residual: 2,
+          standardizedResidual: 0.4,
+          isOutlier: false,
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty includedCohorts", () => {
+    const result = CohortCalibrationSchema.safeParse({
+      key: "A",
+      includedCohorts: [],
+      sampleSize: 0,
+      calibration: validCalibrationResult,
+      residuals: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid key", () => {
+    const result = CohortCalibrationSchema.safeParse({
+      key: "B",
+      includedCohorts: ["B"],
+      sampleSize: 10,
+      calibration: validCalibrationResult,
+      residuals: [],
+    });
+    expect(result.success).toBe(false);
   });
 });

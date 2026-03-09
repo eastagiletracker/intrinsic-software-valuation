@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PageData } from "./$types.js";
+  import type { CohortKey, CohortCalibration } from "@isv/domain";
   import Card from "$lib/components/Card.svelte";
   import Tooltip from "$lib/components/Tooltip.svelte";
   import ClusterScatterChart from "$lib/components/ClusterScatterChart.svelte";
@@ -36,10 +37,31 @@
 
   let showExplanations = $state(false);
 
-  const r = $derived(data.report.result);
-  const residuals = $derived(data.report.residuals);
   const clusters = $derived(data.report.clusters);
   const skipped = $derived(data.report.skippedClusters);
+
+  // --- Cohort tier selection ---
+  const cohortCalibrations = $derived(data.report.cohortCalibrations ?? []);
+  const cohortOverview = $derived(data.report.cohortOverview ?? []);
+  const hasCohorts = $derived(cohortCalibrations.length > 0);
+
+  /** Currently selected cohort combination key. Defaults to primaryCohortKey. */
+  let selectedCohortKey = $state<CohortKey | null>(null);
+  const activeCohortKey = $derived(
+    selectedCohortKey ?? data.report.primaryCohortKey ?? null,
+  );
+
+  /** The active cohort calibration (null = use top-level result). */
+  const activeCohort: CohortCalibration | undefined = $derived(
+    activeCohortKey
+      ? cohortCalibrations.find((cc) => cc.key === activeCohortKey)
+      : undefined,
+  );
+
+  /** Active result — from the selected cohort or top-level. */
+  const r = $derived(activeCohort?.calibration ?? data.report.result);
+  /** Active residuals — from the selected cohort or top-level. */
+  const residuals = $derived(activeCohort?.residuals ?? data.report.residuals);
 
   /** Legacy daily rate in € for an 8-hour day (from project config). */
   const dailyRate = $derived(data.legacyDailyRate);
@@ -153,9 +175,23 @@
     }) + " €";
   }
 
+  /** Set of cluster IDs in the active cohort (for filtering charts). */
+  const activeClusterIds = $derived(
+    activeCohort
+      ? new Set(activeCohort.residuals.map((r) => r.clusterId))
+      : null,
+  );
+
+  /** Clusters visible in charts (filtered by cohort or all). */
+  const visibleClusters = $derived(
+    activeClusterIds
+      ? clusters.filter((c) => activeClusterIds.has(c.clusterId))
+      : clusters,
+  );
+
   // Scatter chart data: ISV score vs actual tracked hours (enriched with ticket IDs)
   const scatterData = $derived(
-    clusters.map((c) => ({
+    visibleClusters.map((c) => ({
       x: c.isvAnalysis.isvScore,
       y: c.metrics.totalHours,
       label: c.clusterId,
@@ -166,7 +202,7 @@
   // Residual chart data (enriched with ticket IDs)
   const residualData = $derived(
     residuals.map((res) => {
-      const cluster = clusters.find((c) => c.clusterId === res.clusterId);
+      const cluster = visibleClusters.find((c) => c.clusterId === res.clusterId);
       return {
         x: res.predictedHours,
         y: res.residual,
@@ -236,6 +272,77 @@
           outlier detection, reliability) are not meaningful without actual effort data.
         </p>
       </div>
+    {/if}
+
+    <!-- ================================================================== -->
+    <!-- Cohort Overview & Tier Selector                                    -->
+    <!-- ================================================================== -->
+    {#if hasCohorts}
+      <Card title="Data Cohorts">
+        <p class="mb-3 text-xs text-text-secondary">
+          Clusters are partitioned by data confidence. Higher-confidence cohorts
+          produce more reliable calibration results. Select a tier to filter the
+          report.
+        </p>
+
+        <!-- Compact overview table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-border text-left text-xs text-text-secondary">
+                <th class="pb-2 pr-4">Cohort</th>
+                <th class="pb-2 pr-4 text-right">Clusters</th>
+                <th class="pb-2 pr-4 text-right">%</th>
+                <th class="pb-2 pr-4 text-right">Hours</th>
+                <th class="pb-2 text-right">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each cohortOverview as entry}
+                <tr class="border-b border-border-light">
+                  <td class="py-1.5 pr-4 font-medium">
+                    <span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full {
+                      entry.cohort === 'A' ? 'bg-green-500' :
+                      entry.cohort === 'B' ? 'bg-yellow-500' :
+                      'bg-red-400'
+                    }"></span>
+                    {entry.label}
+                  </td>
+                  <td class="py-1.5 pr-4 text-right tabular-nums">{entry.clusterCount}</td>
+                  <td class="py-1.5 pr-4 text-right tabular-nums text-text-secondary">{entry.clusterPct.toFixed(1)}%</td>
+                  <td class="py-1.5 pr-4 text-right tabular-nums">{entry.totalHours.toFixed(0)}</td>
+                  <td class="py-1.5 text-right tabular-nums text-text-secondary">{entry.hoursPct.toFixed(1)}%</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Tier selector -->
+        <div class="mt-4 flex items-center gap-2">
+          <span class="text-xs font-medium text-text-secondary">Calibration tier:</span>
+          {#each cohortCalibrations as cc}
+            <button
+              class="rounded-full px-3 py-1 text-xs font-medium transition-colors {
+                activeCohortKey === cc.key
+                  ? 'bg-brand text-white'
+                  : 'bg-surface-secondary text-text-secondary hover:bg-surface-tertiary'
+              }"
+              onclick={() => { selectedCohortKey = cc.key; }}
+            >
+              {cc.key} ({cc.sampleSize})
+            </button>
+          {/each}
+        </div>
+
+        {#if activeCohortKey && activeCohortKey !== "A+B+C"}
+          <p class="mt-2 text-xs text-text-secondary">
+            Showing calibration for <strong>{activeCohortKey}</strong> cohort
+            ({activeCohort?.sampleSize ?? 0} clusters).
+            Lower-confidence clusters are excluded from regression and charts.
+          </p>
+        {/if}
+      </Card>
     {/if}
 
     <!-- ================================================================== -->

@@ -3,6 +3,11 @@ import { z } from "zod";
 import { CalibrationResultSchema } from "./calibration-result.schema.js";
 import { ShipUnitClusterSchema } from "./ship-unit-cluster.schema.js";
 import { ClusterResidualSchema } from "./cluster-residual.schema.js";
+import {
+  CohortOverviewEntrySchema,
+  CohortCalibrationSchema,
+  CohortKeySchema,
+} from "./cohort.schema.js";
 
 /**
  * Full output of a historical calibration pipeline run.
@@ -38,6 +43,24 @@ export const CalibrationRunOutputSchema = z
           "Covers timeframe, sample size, ship rate, statistical quality, " +
           "data representativeness, and key findings.",
       ),
+    cohortOverview: z
+      .array(CohortOverviewEntrySchema)
+      .optional()
+      .describe(
+        "Compact per-cohort summary (A/B/C) showing cluster count, " +
+          "hours share, and contribution to the overall sample.",
+      ),
+    cohortCalibrations: z
+      .array(CohortCalibrationSchema)
+      .optional()
+      .describe(
+        "Pre-computed calibration results for the three natural cohort " +
+          "combinations: A, A+B, A+B+C. Enables tier comparison in the UI.",
+      ),
+    primaryCohortKey: CohortKeySchema.optional().describe(
+      "Which cohort combination drives the top-level result fields. " +
+        "Defaults to the most restrictive cohort with ≥ 18 clusters.",
+    ),
   })
   .describe(
     "Full calibration pipeline output: aggregated result, per-cluster data, " +

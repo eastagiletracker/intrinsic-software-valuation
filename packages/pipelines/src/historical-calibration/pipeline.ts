@@ -8,6 +8,10 @@ import type {
   IsvFactors,
   ProjectConfig,
   Ticket,
+  CohortCode,
+  CohortKey,
+  CohortOverviewEntry,
+  CohortCalibration,
 } from "@isv/domain";
 import type {
   TicketClient,
@@ -150,6 +154,37 @@ function resolveCheckpointPath(
   return `data/${slug}/calibration-runs/${runId}/progress.jsonl`;
 }
 
+/**
+ * Build per-cluster residuals using the simple Ship Rate model
+ * (y = shipRate × isvScore). Consistent with the scalar Ship Rate.
+ */
+function buildResiduals(
+  clusters: ShipUnitCluster[],
+  shipRate: number,
+  outliers: { entries: Array<{ clusterId: string }> },
+): ClusterResidual[] {
+  const outlierIds = new Set(outliers.entries.map((e) => e.clusterId));
+  const rawResiduals = clusters.map(
+    (c) => c.metrics.totalHours - shipRate * c.isvAnalysis.isvScore,
+  );
+  const residualVariance =
+    rawResiduals.length > 1
+      ? rawResiduals.reduce((sum, r) => sum + r * r, 0) /
+        (rawResiduals.length - 1)
+      : 0;
+  const residualStdDev = Math.sqrt(residualVariance);
+
+  return clusters.map((c, i) => ({
+    clusterId: c.clusterId,
+    actualHours: c.metrics.totalHours,
+    predictedHours: shipRate * c.isvAnalysis.isvScore,
+    residual: rawResiduals[i],
+    standardizedResidual:
+      residualStdDev > 0 ? rawResiduals[i] / residualStdDev : 0,
+    isOutlier: outlierIds.has(c.clusterId),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline implementation
 // ---------------------------------------------------------------------------
@@ -212,6 +247,7 @@ class HistoricalCalibrationPipeline
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
         legacyDailyRate: 1000,
+        minCohortSampleSize: config.minCohortSampleSize ?? 18,
       };
       const minConfidence = config.minConfidence ?? 0.7;
 
@@ -518,12 +554,123 @@ class HistoricalCalibrationPipeline
       // updated (resolved) during it.  Use the configured filter window instead.
       const periodStartMonth = period.start.slice(0, 7); // "YYYY-MM"
       const periodEndMonth = period.end.slice(0, 7);
-      const result = {
-        ...calibrationResult.data,
-        dataQualityScore: dqs,
-        periodStart: periodStartMonth,
-        periodEnd: periodEndMonth,
-      };
+
+      // --- Cohort-based calibration ---
+      // Partition clusters by dataConfidence into A (high), B (medium), C (low).
+      const cohortA = shipUnitClusters.filter(
+        (c) => c.metrics.dataConfidence === "high",
+      );
+      const cohortB = shipUnitClusters.filter(
+        (c) => c.metrics.dataConfidence === "medium",
+      );
+      const cohortC = shipUnitClusters.filter(
+        (c) => c.metrics.dataConfidence === "low",
+      );
+
+      const cohortSubsets: Array<{
+        key: CohortKey;
+        included: CohortCode[];
+        clusters: ShipUnitCluster[];
+      }> = [
+        { key: "A", included: ["A"], clusters: cohortA },
+        { key: "A+B", included: ["A", "B"], clusters: [...cohortA, ...cohortB] },
+        { key: "A+B+C", included: ["A", "B", "C"], clusters: shipUnitClusters },
+      ];
+
+      // Build cohort overview (compact stats per A/B/C).
+      const totalClustersCount = shipUnitClusters.length;
+      const totalHoursAll = shipUnitClusters.reduce(
+        (s, c) => s + c.metrics.totalHours, 0,
+      );
+      const cohortOverview: CohortOverviewEntry[] = (
+        [
+          { code: "A" as CohortCode, label: "High confidence", clusters: cohortA },
+          { code: "B" as CohortCode, label: "Medium confidence", clusters: cohortB },
+          { code: "C" as CohortCode, label: "Low confidence", clusters: cohortC },
+        ] as const
+      ).map(({ code, label, clusters: cc }) => ({
+        cohort: code,
+        label,
+        clusterCount: cc.length,
+        clusterPct:
+          totalClustersCount > 0
+            ? Math.round((cc.length / totalClustersCount) * 1000) / 10
+            : 0,
+        totalHours: cc.reduce((s, c) => s + c.metrics.totalHours, 0),
+        hoursPct:
+          totalHoursAll > 0
+            ? Math.round(
+                (cc.reduce((s, c) => s + c.metrics.totalHours, 0) /
+                  totalHoursAll) *
+                  1000,
+              ) / 10
+            : 0,
+      }));
+
+      // Run calibration for each combination with ≥2 clusters.
+      const cohortCalibrations: CohortCalibration[] = [];
+      for (const { key, included, clusters: subset } of cohortSubsets) {
+        if (subset.length < 2) continue;
+        const calResult = this.calibration.calibrate(subset);
+        if (!calResult.success) continue;
+        const calData = {
+          ...calResult.data,
+          dataQualityScore: dqs,
+          periodStart: periodStartMonth,
+          periodEnd: periodEndMonth,
+        };
+        calData.reliability = {
+          ...calData.reliability,
+          dataQualityScore: dqs,
+        };
+
+        // Build residuals for this subset
+        const subResiduals = buildResiduals(subset, calData.shipRateHoursPerIsv, calData.outliers);
+
+        cohortCalibrations.push({
+          key,
+          includedCohorts: [...included],
+          sampleSize: subset.length,
+          calibration: calData,
+          residuals: subResiduals,
+        });
+      }
+
+      // Select primary cohort: most restrictive combination meeting sample threshold.
+      const MIN_PRIMARY_SAMPLE = projectConfig.minCohortSampleSize;
+      const primaryCohortKey: CohortKey | undefined =
+        cohortCalibrations.find(
+          (cc) => cc.key === "A" && cc.sampleSize >= MIN_PRIMARY_SAMPLE,
+        )
+          ? "A"
+          : cohortCalibrations.find(
+                (cc) =>
+                  cc.key === "A+B" && cc.sampleSize >= MIN_PRIMARY_SAMPLE,
+              )
+            ? "A+B"
+            : cohortCalibrations.find(
+                  (cc) =>
+                    cc.key === "A+B+C" &&
+                    cc.sampleSize >= MIN_PRIMARY_SAMPLE,
+                )
+              ? "A+B+C"
+              : cohortCalibrations.length > 0
+                ? cohortCalibrations[cohortCalibrations.length - 1].key
+                : undefined;
+
+      // Top-level result: use primary cohort's calibration if available,
+      // otherwise fall back to the all-clusters calibration.
+      const primaryCal = primaryCohortKey
+        ? cohortCalibrations.find((cc) => cc.key === primaryCohortKey)
+        : undefined;
+      const result = primaryCal
+        ? { ...primaryCal.calibration }
+        : {
+            ...calibrationResult.data,
+            dataQualityScore: dqs,
+            periodStart: periodStartMonth,
+            periodEnd: periodEndMonth,
+          };
       result.reliability = {
         ...result.reliability,
         dataQualityScore: dqs,
@@ -541,46 +688,22 @@ class HistoricalCalibrationPipeline
         dataQualityAssessment: dqsText,
       };
 
-      // Build per-cluster residuals from calibration output.
-      // Use the simple Ship Rate model (y = shipRate * isvScore) for
-      // per-cluster predicted values, consistent with the scalar Ship Rate.
-      const outlierIds = new Set(
-        result.outliers.entries.map((e) => e.clusterId),
+      // Build per-cluster residuals for the top-level result (all clusters).
+      const residuals = buildResiduals(
+        shipUnitClusters,
+        result.shipRateHoursPerIsv,
+        result.outliers,
       );
-      const rawResiduals = shipUnitClusters.map((c) => {
-        const predicted =
-          result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
-        return c.metrics.totalHours - predicted;
-      });
-      const residualVariance =
-        rawResiduals.length > 1
-          ? rawResiduals.reduce((sum, r) => sum + r * r, 0) /
-            (rawResiduals.length - 1)
-          : 0;
-      const residualStdDev = Math.sqrt(residualVariance);
-
-      const residuals: ClusterResidual[] = shipUnitClusters.map((c, i) => {
-        const predicted =
-          result.shipRateHoursPerIsv * c.isvAnalysis.isvScore;
-        const residual = rawResiduals[i];
-        const stdResidual =
-          residualStdDev > 0 ? residual / residualStdDev : 0;
-
-        return {
-          clusterId: c.clusterId,
-          actualHours: c.metrics.totalHours,
-          predictedHours: predicted,
-          residual,
-          standardizedResidual: stdResidual,
-          isOutlier: outlierIds.has(c.clusterId),
-        };
-      });
 
       const output: CalibrationRunOutput = {
         result,
         clusters: shipUnitClusters,
         residuals,
         skippedClusters,
+        cohortOverview,
+        cohortCalibrations:
+          cohortCalibrations.length > 0 ? cohortCalibrations : undefined,
+        primaryCohortKey,
       };
 
       // Step 8: Generate AI executive summary (non-critical)

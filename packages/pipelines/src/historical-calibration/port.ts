@@ -46,4 +46,6 @@ export interface HistoricalCalibrationConfig {
   llmConcurrency?: number;
   /** Per-task timeout in milliseconds. Default: 300 000 (5 min). */
   taskTimeoutMs?: number;
+  /** Minimum cluster count for a cohort tier to become the primary calibration. Default: 18. */
+  minCohortSampleSize?: number;
 }

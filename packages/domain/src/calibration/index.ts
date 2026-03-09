@@ -53,3 +53,13 @@ export {
   CalibrationRunOutputSchema,
   type CalibrationRunOutput,
 } from "./calibration-run-output.schema.js";
+export {
+  CohortCodeSchema,
+  type CohortCode,
+  CohortKeySchema,
+  type CohortKey,
+  CohortOverviewEntrySchema,
+  type CohortOverviewEntry,
+  CohortCalibrationSchema,
+  type CohortCalibration,
+} from "./cohort.schema.js";

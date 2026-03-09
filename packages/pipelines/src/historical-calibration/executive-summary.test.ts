@@ -156,6 +156,46 @@ describe("buildSummaryPrompt", () => {
     const prompt = buildSummaryPrompt(minimalOutput, 1000);
     expect(prompt).toContain("Increase sample size");
   });
+
+  it("omits cohort section when no cohort data is present", () => {
+    const prompt = buildSummaryPrompt(minimalOutput, 1000);
+    expect(prompt).not.toContain("Data Cohort Analysis");
+  });
+
+  it("includes cohort section when cohort data is present", () => {
+    const outputWithCohorts: CalibrationRunOutput = {
+      ...minimalOutput,
+      cohortOverview: [
+        { cohort: "A", label: "High confidence", clusterCount: 30, clusterPct: 42.9, totalHours: 500, hoursPct: 60 },
+        { cohort: "B", label: "Medium confidence", clusterCount: 10, clusterPct: 14.3, totalHours: 150, hoursPct: 18 },
+        { cohort: "C", label: "Low confidence", clusterCount: 30, clusterPct: 42.9, totalHours: 183, hoursPct: 22 },
+      ],
+      cohortCalibrations: [
+        {
+          key: "A",
+          includedCohorts: ["A"],
+          sampleSize: 30,
+          calibration: { ...minimalOutput.result, rSquared: 0.65 },
+          residuals: [],
+        },
+        {
+          key: "A+B+C",
+          includedCohorts: ["A", "B", "C"],
+          sampleSize: 70,
+          calibration: minimalOutput.result,
+          residuals: [],
+        },
+      ],
+      primaryCohortKey: "A",
+    };
+
+    const prompt = buildSummaryPrompt(outputWithCohorts, 1000);
+    expect(prompt).toContain("Data Cohort Analysis");
+    expect(prompt).toContain('primary calibration tier is "A"');
+    expect(prompt).toContain("Cohort A (High confidence): 30 clusters");
+    expect(prompt).toContain("Tier A: 30 clusters, R²=0.6500");
+    expect(prompt).toContain("Tier A+B+C: 70 clusters");
+  });
 });
 
 // ---------------------------------------------------------------------------
