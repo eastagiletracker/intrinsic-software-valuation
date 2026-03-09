@@ -29,27 +29,38 @@ const MIN_DURATION_HOURS = 0.1;
 
 /** Zero-based column indices for the Teamleader Excel export header row. */
 interface ColumnIndex {
-  projekt: number;
+  /** Required */
   datum: number;
   dauer: number;
   beschreibung: number;
-  position: number;
-  aufgabe: number;
+  /** Optional – present in some export variants */
+  projekt?: number;
+  position?: number;
+  aufgabe?: number;
+  ticketId?: number;
+  /** true when Dauer header does NOT contain "Stunden" → values are minutes */
+  dauerInMinutes: boolean;
 }
 
-/**
- * Patterns for matching Teamleader column headers.
- *
- * Uses `startsWith` to tolerate minor typos (e.g. trailing extra paren in
- * `"Dauer (Stunden))"`) and future format drift.
- */
-const HEADER_PATTERNS: Record<keyof ColumnIndex, (text: string) => boolean> = {
-  projekt: (t) => t === "Projekt",
+/** Required columns — header detection succeeds only when all are found. */
+const REQUIRED_HEADER_PATTERNS: Record<
+  "datum" | "dauer" | "beschreibung",
+  (text: string) => boolean
+> = {
   datum: (t) => t === "Datum",
   dauer: (t) => t.startsWith("Dauer"),
   beschreibung: (t) => t === "Beschreibung",
+};
+
+/** Optional columns — matched if present but not required. */
+const OPTIONAL_HEADER_PATTERNS: Record<
+  "projekt" | "position" | "aufgabe" | "ticketId",
+  (text: string) => boolean
+> = {
+  projekt: (t) => t === "Projekt" || t === "Projektname",
   position: (t) => t === "Position",
   aufgabe: (t) => t === "Aufgabe",
+  ticketId: (t) => t === "Ticket-ID",
 };
 
 // ---------------------------------------------------------------------------
@@ -58,29 +69,56 @@ const HEADER_PATTERNS: Record<keyof ColumnIndex, (text: string) => boolean> = {
 
 /**
  * Try to build a column index from a row. Returns `undefined` if the row does
- * not contain all expected header columns (i.e. it is not the header row).
+ * not contain all required header columns (Datum, Dauer, Beschreibung).
+ * Optional columns (Projekt/Projektname, Position, Aufgabe, Ticket-ID) are
+ * captured when present.
  */
 function tryBuildColumnIndex(row: ExcelJS.Row): ColumnIndex | undefined {
-  const index: Partial<ColumnIndex> = {};
+  const required: Partial<Record<"datum" | "dauer" | "beschreibung", number>> =
+    {};
+  const optional: Partial<
+    Record<"projekt" | "position" | "aufgabe" | "ticketId", number>
+  > = {};
+  let dauerHeaderText = "";
 
   row.eachCell((cell, colNumber) => {
     const text = String(cell.value ?? "").trim();
-    for (const [key, matches] of Object.entries(HEADER_PATTERNS) as Array<
-      [keyof ColumnIndex, (text: string) => boolean]
+    for (const [key, matches] of Object.entries(REQUIRED_HEADER_PATTERNS) as Array<
+      ["datum" | "dauer" | "beschreibung", (text: string) => boolean]
     >) {
       if (matches(text)) {
-        index[key] = colNumber - 1; // convert to 0-based
+        required[key] = colNumber - 1;
+        if (key === "dauer") dauerHeaderText = text;
+      }
+    }
+    for (const [key, matches] of Object.entries(OPTIONAL_HEADER_PATTERNS) as Array<
+      ["projekt" | "position" | "aufgabe" | "ticketId", (text: string) => boolean]
+    >) {
+      if (matches(text)) {
+        optional[key] = colNumber - 1;
       }
     }
   });
 
-  for (const key of Object.keys(HEADER_PATTERNS) as Array<keyof ColumnIndex>) {
-    if (index[key] === undefined) {
-      return undefined;
-    }
+  // All required columns must be present
+  for (const key of Object.keys(REQUIRED_HEADER_PATTERNS) as Array<
+    "datum" | "dauer" | "beschreibung"
+  >) {
+    if (required[key] === undefined) return undefined;
   }
 
-  return index as ColumnIndex;
+  // "Dauer (Stunden)" → hours; bare "Dauer" or other variants → minutes
+  const dauerInMinutes = !dauerHeaderText
+    .toLowerCase()
+    .includes("stunden");
+
+  return {
+    datum: required.datum!,
+    dauer: required.dauer!,
+    beschreibung: required.beschreibung!,
+    ...optional,
+    dauerInMinutes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -94,10 +132,14 @@ function rowToTimeEntry(
   const values = row.values as ExcelJS.CellValue[];
 
   const rawDuration = values[cols.dauer + 1]; // row.values is 1-based
-  const durationHours =
+  let durationHours =
     typeof rawDuration === "number"
       ? rawDuration
       : parseFloat(String(rawDuration ?? ""));
+
+  if (cols.dauerInMinutes) {
+    durationHours = durationHours / 60;
+  }
 
   if (!isFinite(durationHours) || durationHours < MIN_DURATION_HOURS) {
     return null; // L1 cleaning: filter out rounding artifacts
@@ -107,7 +149,22 @@ function rowToTimeEntry(
   const timestamp = parseDateToIso(rawDate);
 
   const rawComment = String(values[cols.beschreibung + 1] ?? "").trim();
+
+  // Collect ticket IDs from description text
   const detectedIds = extractTicketIds(rawComment);
+
+  // If a dedicated Ticket-ID column exists, merge its value in
+  if (cols.ticketId !== undefined) {
+    const rawTicketId = String(values[cols.ticketId + 1] ?? "").trim();
+    if (rawTicketId) {
+      for (const id of extractTicketIds(rawTicketId)) {
+        if (!detectedIds.includes(id)) {
+          detectedIds.push(id);
+        }
+      }
+    }
+  }
+
   const attributionType = classifyAttribution(detectedIds.length);
 
   const entry = TimeEntrySchema.parse({
