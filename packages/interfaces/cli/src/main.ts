@@ -7,6 +7,7 @@
  *   isv calculate <ticketId> --project <slug>  — Calculate ISV for a single ticket
  *   isv calibrate --project <slug> [--from <YYYY-MM>] [--to <YYYY-MM>] [--run-id <id>]
  *                 [--concurrency <n>] [--llm-concurrency <n>]
+ *                 [--recompute-regression [<path>]]
  *   isv calibrate --status --project <slug> [--run-id <id>]
  *   isv cache-purge --project <slug>        — Delete cached data for a project
  *   isv init --project <slug>
@@ -416,17 +417,19 @@ Usage:
   isv calibrate --project <slug> [options]
 
 Options:
-  --project <slug>            Project slug (required) — resolves to data/<slug>/project-config.json
-  --from <YYYY-MM>            Start of calibration period (defaults to pipeline default)
-  --to <YYYY-MM>              End of calibration period (defaults to pipeline default)
-  --run-id <id>               Resume a specific run
-  --concurrency <n>           Cluster concurrency (default: 3)
-  --llm-concurrency <n>       LLM concurrency (default: 2)
-  --status                    Show calibration run status instead of running
-  --d3-quality-floor <1|2|3>  D3 quality floor override
-  --min-confidence <number>   Minimum cluster confidence to include
-  --json                      Suppress stderr progress output (stdout JSON only)
-  --help                      Show this help message
+  --project <slug>                  Project slug (required) — resolves to data/<slug>/project-config.json
+  --from <YYYY-MM>                  Start of calibration period (defaults to pipeline default)
+  --to <YYYY-MM>                    End of calibration period (defaults to pipeline default)
+  --run-id <id>                     Resume a specific run
+  --concurrency <n>                 Cluster concurrency (default: 6)
+  --llm-concurrency <n>             LLM concurrency (default: 2)
+  --recompute-regression [<path>]   Skip fact-finding, reuse clusters from a previous report.
+                                    If <path> omitted, auto-detects the latest report.
+  --status                          Show calibration run status instead of running
+  --d3-quality-floor <1|2|3>        D3 quality floor override
+  --min-confidence <number>         Minimum cluster confidence to include
+  --json                            Suppress stderr progress output (stdout JSON only)
+  --help                            Show this help message
 `;
 
 // ---------------------------------------------------------------------------
@@ -615,7 +618,7 @@ async function runCalibrate(args: string[]): Promise<void> {
   const runId = findFlag(args, "--run-id");
   const concurrencyStr = findFlag(args, "--concurrency");
   const llmConcurrencyStr = findFlag(args, "--llm-concurrency");
-  const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 3;
+  const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 6;
   const llmConcurrency = llmConcurrencyStr
     ? parseInt(llmConcurrencyStr, 10)
     : 2;
@@ -627,6 +630,27 @@ async function runCalibrate(args: string[]): Promise<void> {
   const rawMinConfidence = findFlag(args, "--min-confidence");
   const minConfidence =
     rawMinConfidence !== undefined ? Number(rawMinConfidence) : undefined;
+
+  // --recompute-regression: reuse cluster data from a previous report
+  const recomputeFrom = findFlag(args, "--recompute-regression");
+  let resolvedRecomputeFrom: string | undefined;
+  if (recomputeFrom && !recomputeFrom.startsWith("--")) {
+    resolvedRecomputeFrom = resolve(cwd, recomputeFrom);
+  } else if (hasFlag(args, "--recompute-regression")) {
+    // Flag present without a value → auto-detect latest report
+    const calDir = resolve(cwd, "data", projectSlug, "calibration");
+    if (existsSync(calDir)) {
+      const { readdir: rd } = await import("node:fs/promises");
+      const files = (await rd(calDir)).filter((f: string) => f.endsWith(".json")).sort();
+      if (files.length > 0) {
+        resolvedRecomputeFrom = join(calDir, files[files.length - 1]);
+      }
+    }
+    if (!resolvedRecomputeFrom) {
+      console.error("Error: No previous calibration report found to recompute from.");
+      process.exit(1);
+    }
+  }
 
   // Generate effective run ID
   const effectiveRunId =
@@ -658,7 +682,11 @@ async function runCalibrate(args: string[]): Promise<void> {
   process.on("SIGINT", sigintHandler);
 
   try {
-    console.log(`Starting calibration run: ${effectiveRunId}`);
+    if (resolvedRecomputeFrom) {
+      console.log(`Recomputing regression from: ${resolvedRecomputeFrom}`);
+    } else {
+      console.log(`Starting calibration run: ${effectiveRunId}`);
+    }
     console.log(`  Concurrency: ${concurrency}  |  LLM Concurrency: ${llmConcurrency}`);
     console.log("");
 
@@ -672,6 +700,7 @@ async function runCalibrate(args: string[]): Promise<void> {
       concurrency,
       llmConcurrency,
       onProgress,
+      recomputeFrom: resolvedRecomputeFrom,
     });
 
     if (!result.success) {

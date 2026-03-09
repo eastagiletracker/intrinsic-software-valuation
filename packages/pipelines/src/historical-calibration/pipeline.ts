@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import PQueue from "p-queue";
 
 import type {
@@ -13,6 +15,7 @@ import type {
   CohortOverviewEntry,
   CohortCalibration,
 } from "@isv/domain";
+import { CalibrationRunOutputSchema } from "@isv/domain";
 import type {
   TicketClient,
   GitClient,
@@ -218,6 +221,11 @@ class HistoricalCalibrationPipeline
       }
     };
 
+    // Fast path: recompute regression from a previous run's cluster data.
+    if (config.recomputeFrom) {
+      return this.recomputeRegression(config, emit);
+    }
+
     // Checkpoint setup
     const runId = config.runId ?? generateRunId();
     const checkpointPath = resolveCheckpointPath(config.projectSlug, runId);
@@ -319,7 +327,7 @@ class HistoricalCalibrationPipeline
       }
 
       // --- Concurrent processing via PQueue ---
-      const concurrency = config.concurrency ?? 3;
+      const concurrency = config.concurrency ?? 6;
       const taskTimeoutMs = config.taskTimeoutMs ?? 300_000; // 5 min
 
       const queue = new PQueue({
@@ -742,6 +750,221 @@ class HistoricalCalibrationPipeline
         },
       };
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Recompute-regression fast path
+  // -----------------------------------------------------------------------
+
+  /**
+   * Load a previous CalibrationRunOutput and re-run only the regression
+   * (Step 7) and executive summary (Step 8) using the existing cluster data.
+   * This skips all expensive fact-finding (git checkout, LLM calls).
+   */
+  private async recomputeRegression(
+    config: HistoricalCalibrationConfig,
+    emit: (event: CalibrationProgressEvent) => void,
+  ): Promise<Result<CalibrationRunOutput>> {
+    emit({ phase: "loading-tickets", current: 1, total: 3, detail: "Loading previous run" });
+
+    // Load and validate previous run output
+    let previousOutput: CalibrationRunOutput;
+    try {
+      const raw = await readFile(config.recomputeFrom!, "utf-8");
+      const parsed = CalibrationRunOutputSchema.safeParse(JSON.parse(raw));
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: {
+            code: "INVALID_PREVIOUS_RUN",
+            message: `Previous run file failed schema validation: ${parsed.error.message}`,
+            source: "historical-calibration-pipeline",
+          },
+        };
+      }
+      previousOutput = parsed.data;
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: "LOAD_PREVIOUS_RUN_FAILED",
+          message: `Could not load previous run: ${err instanceof Error ? err.message : String(err)}`,
+          source: "historical-calibration-pipeline",
+        },
+      };
+    }
+
+    const shipUnitClusters = previousOutput.clusters;
+    const skippedClusters = previousOutput.skippedClusters;
+
+    if (shipUnitClusters.length < 2) {
+      return {
+        success: false,
+        error: {
+          code: "INSUFFICIENT_CLUSTERS",
+          message: `Previous run has only ${shipUnitClusters.length} clusters. Need at least 2.`,
+          source: "historical-calibration-pipeline",
+        },
+      };
+    }
+
+    const projectConfig: ProjectConfig = {
+      d3QualityFloor: config.d3QualityFloor ?? 1,
+      legacyDailyRate: 1000,
+      minCohortSampleSize: config.minCohortSampleSize ?? 18,
+    };
+
+    // Reuse period from previous result
+    const periodStartMonth = previousOutput.result.periodStart;
+    const periodEndMonth = previousOutput.result.periodEnd;
+
+    // Step 7: Run calibration regression
+    emit({ phase: "regression", current: 2, total: 3 });
+
+    const calibrationResult = this.calibration.calibrate(shipUnitClusters);
+    if (!calibrationResult.success) {
+      return calibrationResult;
+    }
+
+    // Reuse DQS from previous run
+    const dqs = previousOutput.result.reliability?.dataQualityScore
+      ?? previousOutput.result.dataQualityScore
+      ?? 0;
+
+    // --- Cohort-based calibration (same logic as full run) ---
+    const cohortA = shipUnitClusters.filter((c) => c.metrics.dataConfidence === "high");
+    const cohortB = shipUnitClusters.filter((c) => c.metrics.dataConfidence === "medium");
+    const cohortC = shipUnitClusters.filter((c) => c.metrics.dataConfidence === "low");
+
+    const cohortSubsets: Array<{
+      key: CohortKey;
+      included: CohortCode[];
+      clusters: ShipUnitCluster[];
+    }> = [
+      { key: "A", included: ["A"], clusters: cohortA },
+      { key: "A+B", included: ["A", "B"], clusters: [...cohortA, ...cohortB] },
+      { key: "A+B+C", included: ["A", "B", "C"], clusters: shipUnitClusters },
+    ];
+
+    const totalClustersCount = shipUnitClusters.length;
+    const totalHoursAll = shipUnitClusters.reduce((s, c) => s + c.metrics.totalHours, 0);
+    const cohortOverview: CohortOverviewEntry[] = (
+      [
+        { code: "A" as CohortCode, label: "High confidence", clusters: cohortA },
+        { code: "B" as CohortCode, label: "Medium confidence", clusters: cohortB },
+        { code: "C" as CohortCode, label: "Low confidence", clusters: cohortC },
+      ] as const
+    ).map(({ code, label, clusters: cc }) => ({
+      cohort: code,
+      label,
+      clusterCount: cc.length,
+      clusterPct:
+        totalClustersCount > 0
+          ? Math.round((cc.length / totalClustersCount) * 1000) / 10
+          : 0,
+      totalHours: cc.reduce((s, c) => s + c.metrics.totalHours, 0),
+      hoursPct:
+        totalHoursAll > 0
+          ? Math.round(
+              (cc.reduce((s, c) => s + c.metrics.totalHours, 0) / totalHoursAll) * 1000,
+            ) / 10
+          : 0,
+    }));
+
+    const cohortCalibrations: CohortCalibration[] = [];
+    for (const { key, included, clusters: subset } of cohortSubsets) {
+      if (subset.length < 2) continue;
+      const calResult = this.calibration.calibrate(subset);
+      if (!calResult.success) continue;
+      const calData = {
+        ...calResult.data,
+        dataQualityScore: dqs,
+        periodStart: periodStartMonth,
+        periodEnd: periodEndMonth,
+      };
+      calData.reliability = {
+        ...calData.reliability,
+        dataQualityScore: dqs,
+      };
+      const subResiduals = buildResiduals(subset, calData.shipRateHoursPerIsv, calData.outliers);
+      cohortCalibrations.push({
+        key,
+        includedCohorts: [...included],
+        sampleSize: subset.length,
+        calibration: calData,
+        residuals: subResiduals,
+      });
+    }
+
+    const MIN_PRIMARY_SAMPLE = projectConfig.minCohortSampleSize;
+    const primaryCohortKey: CohortKey | undefined =
+      cohortCalibrations.find((cc) => cc.key === "A" && cc.sampleSize >= MIN_PRIMARY_SAMPLE)
+        ? "A"
+        : cohortCalibrations.find((cc) => cc.key === "A+B" && cc.sampleSize >= MIN_PRIMARY_SAMPLE)
+          ? "A+B"
+          : cohortCalibrations.find((cc) => cc.key === "A+B+C" && cc.sampleSize >= MIN_PRIMARY_SAMPLE)
+            ? "A+B+C"
+            : cohortCalibrations.length > 0
+              ? cohortCalibrations[cohortCalibrations.length - 1].key
+              : undefined;
+
+    const primaryCal = primaryCohortKey
+      ? cohortCalibrations.find((cc) => cc.key === primaryCohortKey)
+      : undefined;
+    const result = primaryCal
+      ? { ...primaryCal.calibration }
+      : {
+          ...calibrationResult.data,
+          dataQualityScore: dqs,
+          periodStart: periodStartMonth,
+          periodEnd: periodEndMonth,
+        };
+    result.reliability = {
+      ...result.reliability,
+      dataQualityScore: dqs,
+    };
+
+    const dqsText =
+      dqs >= 0.85
+        ? `Data quality is good (DQS=${(dqs * 100).toFixed(1)}%)`
+        : dqs >= 0.7
+          ? `Data quality is acceptable but could be improved (DQS=${(dqs * 100).toFixed(1)}%)`
+          : `Data quality is low — calibration results may not be trustworthy (DQS=${(dqs * 100).toFixed(1)}%)`;
+    result.formulaValidation = {
+      ...result.formulaValidation,
+      dataQualityAssessment: dqsText,
+    };
+
+    const residuals = buildResiduals(
+      shipUnitClusters,
+      result.shipRateHoursPerIsv,
+      result.outliers,
+    );
+
+    const output: CalibrationRunOutput = {
+      result,
+      clusters: shipUnitClusters,
+      residuals,
+      skippedClusters,
+      cohortOverview,
+      cohortCalibrations: cohortCalibrations.length > 0 ? cohortCalibrations : undefined,
+      primaryCohortKey,
+    };
+
+    // Step 8: Generate AI executive summary
+    emit({ phase: "generating-summary", current: 3, total: 3 });
+    const summary = await generateExecutiveSummary(
+      output,
+      this.llmClient,
+      projectConfig.legacyDailyRate,
+    );
+    if (summary) {
+      output.executiveSummary = summary;
+    }
+
+    emit({ phase: "complete", current: 3, total: 3 });
+
+    return { success: true, data: output };
   }
 
   // -----------------------------------------------------------------------

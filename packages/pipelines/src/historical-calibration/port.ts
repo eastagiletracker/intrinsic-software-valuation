@@ -40,7 +40,7 @@ export interface HistoricalCalibrationConfig {
   onProgress?: CalibrationProgressCallback;
   /** Optional run ID for checkpoint/resume. When omitted, a timestamp-based ID is generated. */
   runId?: string;
-  /** Maximum number of clusters processed concurrently. Default: 3. */
+  /** Maximum number of clusters processed concurrently. Default: 6. */
   concurrency?: number;
   /** Maximum concurrent LLM API calls across all workers. Default: 2. */
   llmConcurrency?: number;
@@ -48,4 +48,11 @@ export interface HistoricalCalibrationConfig {
   taskTimeoutMs?: number;
   /** Minimum cluster count for a cohort tier to become the primary calibration. Default: 18. */
   minCohortSampleSize?: number;
+  /**
+   * Path to a previous CalibrationRunOutput JSON file.
+   * When set, the pipeline skips fact-finding (Steps 1-6) and reuses
+   * the clusters and skippedClusters from the previous run, then
+   * re-executes regression (Step 7) and executive summary (Step 8).
+   */
+  recomputeFrom?: string;
 }
