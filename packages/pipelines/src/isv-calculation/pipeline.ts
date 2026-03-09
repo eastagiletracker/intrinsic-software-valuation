@@ -142,7 +142,7 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
           .filter((id) => trees.has(id))
           .map((id) => trees.get(id)!);
 
-        const llmGate = createLlmGate(config.llmConcurrency ?? 5);
+        const llmGate = createLlmGate(config.llmConcurrency ?? 8);
 
         // Wrap the LLM client so every invocation carries the abort signal.
         const signalledLlm: LlmClient = {

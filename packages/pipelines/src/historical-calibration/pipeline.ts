@@ -259,7 +259,7 @@ class HistoricalCalibrationPipeline
     }
 
     // LLM semaphore
-    const llmGate = createLlmGate(config.llmConcurrency ?? 2);
+    const llmGate = createLlmGate(config.llmConcurrency ?? 5);
 
     try {
       const projectConfig: ProjectConfig = {

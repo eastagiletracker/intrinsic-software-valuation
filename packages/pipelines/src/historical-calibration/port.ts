@@ -42,7 +42,7 @@ export interface HistoricalCalibrationConfig {
   runId?: string;
   /** Maximum number of clusters processed concurrently. Default: 6. */
   concurrency?: number;
-  /** Maximum concurrent LLM API calls across all workers. Default: 2. */
+  /** Maximum concurrent LLM API calls across all workers. Default: 5. */
   llmConcurrency?: number;
   /** Per-task timeout in milliseconds. Default: 300 000 (5 min). */
   taskTimeoutMs?: number;

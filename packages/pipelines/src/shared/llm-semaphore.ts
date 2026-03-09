@@ -8,8 +8,8 @@ import pLimit, { type LimitFunction } from "p-limit";
  * An LLM concurrency gate that limits the number of simultaneous LLM API
  * calls across all cluster workers.
  *
- * Independent of the cluster worker count — e.g. 5 cluster workers with LLM
- * concurrency 2 means at most 2 LLM calls at any moment.
+ * Independent of the cluster worker count — e.g. 6 cluster workers with LLM
+ * concurrency 5 means at most 5 LLM calls at any moment.
  */
 export interface LlmGate {
   /**
@@ -25,10 +25,10 @@ export interface LlmGate {
 /**
  * Create a shared LLM concurrency gate.
  *
- * @param concurrency - Maximum concurrent LLM calls (default: 2).
+ * @param concurrency - Maximum concurrent LLM calls (default: 5).
  * @returns An `LlmGate` function wrapping `p-limit`.
  */
-export function createLlmGate(concurrency = 2): LlmGate {
+export function createLlmGate(concurrency = 5): LlmGate {
   const limit: LimitFunction = pLimit(concurrency);
   return <T>(fn: () => Promise<T>): Promise<T> => limit(fn);
 }

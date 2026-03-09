@@ -24,7 +24,7 @@ describe("createLlmGate", () => {
     expect(maxRunning).toBe(2);
   });
 
-  it("defaults to concurrency 2", async () => {
+  it("defaults to concurrency 5", async () => {
     const gate = createLlmGate();
     let running = 0;
     let maxRunning = 0;
@@ -37,9 +37,9 @@ describe("createLlmGate", () => {
         running--;
       });
 
-    await Promise.all([task(), task(), task(), task()]);
+    await Promise.all([task(), task(), task(), task(), task(), task()]);
 
-    expect(maxRunning).toBe(2);
+    expect(maxRunning).toBe(5);
   });
 
   it("allows higher concurrency when configured", async () => {

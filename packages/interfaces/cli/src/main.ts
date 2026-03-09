@@ -422,7 +422,7 @@ Options:
   --to <YYYY-MM>                    End of calibration period (defaults to pipeline default)
   --run-id <id>                     Resume a specific run
   --concurrency <n>                 Cluster concurrency (default: 6)
-  --llm-concurrency <n>             LLM concurrency (default: 2)
+  --llm-concurrency <n>             LLM concurrency (default: 5)
   --recompute-regression [<path>]   Skip fact-finding, reuse clusters from a previous report.
                                     If <path> omitted, auto-detects the latest report.
   --dry-run                         Check cache coverage without processing. Reports how many
@@ -623,7 +623,7 @@ async function runCalibrate(args: string[]): Promise<void> {
   const concurrency = concurrencyStr ? parseInt(concurrencyStr, 10) : 6;
   const llmConcurrency = llmConcurrencyStr
     ? parseInt(llmConcurrencyStr, 10)
-    : 2;
+    : 5;
   const rawD3Floor = findFlag(args, "--d3-quality-floor");
   const d3QualityFloor =
     rawD3Floor === "1" || rawD3Floor === "2" || rawD3Floor === "3"
