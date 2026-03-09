@@ -55,9 +55,19 @@ type FeatureName = (typeof FEATURE_NAMES)[number];
  *
  * A cluster consists of a parent ticket + all its subtasks.
  * Tickets without parents become their own single-ticket cluster.
+ *
+ * Tickets whose type matches an entry in `excludeTypes` (case-insensitive)
+ * are dropped entirely. Children that referenced an excluded parent are
+ * promoted to independent cluster roots so they are not lost.
  */
-function clusterTickets(tickets: Ticket[]): Map<string, Ticket[]> {
+function clusterTickets(
+  tickets: Ticket[],
+  excludeTypes: string[] = ["Epic"],
+): Map<string, Ticket[]> {
   const clusters = new Map<string, Ticket[]>();
+
+  // Build a set of types to exclude (normalised to lower-case)
+  const excluded = new Set(excludeTypes.map((t) => t.toLowerCase()));
 
   // Index by ticketId for quick lookup
   const ticketMap = new Map<string, Ticket>();
@@ -65,8 +75,29 @@ function clusterTickets(tickets: Ticket[]): Map<string, Ticket[]> {
     ticketMap.set(t.ticketId, t);
   }
 
+  // Collect IDs of excluded tickets so children can be re-parented
+  const excludedIds = new Set<string>();
   for (const t of tickets) {
-    const clusterId = t.parentId ?? t.ticketId;
+    if (excluded.has(t.type.toLowerCase())) {
+      excludedIds.add(t.ticketId);
+    }
+  }
+
+  for (const t of tickets) {
+    // Drop excluded types (e.g. Epics)
+    if (excludedIds.has(t.ticketId)) continue;
+
+    // If the parent was excluded (or is a phantom excluded type),
+    // promote this ticket to its own cluster root.
+    const parentExcluded =
+      t.parentId !== undefined && excludedIds.has(t.parentId);
+    const parentIsPhantom =
+      t.parentId !== undefined && !ticketMap.has(t.parentId);
+
+    const clusterId =
+      parentExcluded || parentIsPhantom
+        ? t.ticketId
+        : (t.parentId ?? t.ticketId);
 
     if (!clusters.has(clusterId)) {
       clusters.set(clusterId, []);
@@ -723,8 +754,8 @@ function calibrate(clusters: ShipUnitCluster[]): Result<CalibrationResult> {
 // ---------------------------------------------------------------------------
 
 class CalibrationService implements CalibrationPort {
-  clusterTickets(tickets: Ticket[]) {
-    return clusterTickets(tickets);
+  clusterTickets(tickets: Ticket[], excludeTypes?: string[]) {
+    return clusterTickets(tickets, excludeTypes);
   }
 
   attributeTime(entries: TimeEntry[], clusters: Map<string, Ticket[]>) {

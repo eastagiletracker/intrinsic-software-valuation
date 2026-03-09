@@ -450,7 +450,7 @@ Jedes Pipeline-Stadium emittiert ein `PipelineProgressEvent`:
 #### FA-602: Ticket-Clustering
 
 - Ein **Ship Unit Cluster** besteht aus einer Story/Task und ihren direkten Subtasks.
-- Nur Parent-Subtask-Hierarchie wird berücksichtigt — keine Epic-Aggregation.
+- Nur Parent-Subtask-Hierarchie wird berücksichtigt — keine Epic-Aggregation. Epics werden standardmäßig ausgeschlossen (`excludeTypes: ["Epic"]` in `ProjectConfig`). Kinder ausgeschlossener Epics werden zu eigenständigen Cluster-Roots promoted. Phantom-Parents (per `parentId` referenziert, aber nicht im Datensatz) werden identisch behandelt.
 - Jira-Link-Relationen werden ignoriert.
 
 #### FA-603: Time Attribution (5 Strategien)

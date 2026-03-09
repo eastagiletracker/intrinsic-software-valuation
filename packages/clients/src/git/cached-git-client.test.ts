@@ -39,6 +39,7 @@ function mockInner(): GitClient {
     releaseAll: vi.fn<GitClient["releaseAll"]>().mockResolvedValue(undefined),
     logStats: vi.fn<GitClient["logStats"]>().mockResolvedValue(makeLogStats()),
     destroy: vi.fn<GitClient["destroy"]>().mockResolvedValue(undefined),
+    resolveAllCommitShas: vi.fn<GitClient["resolveAllCommitShas"]>().mockResolvedValue(new Map()),
   };
 }
 

@@ -17,11 +17,17 @@ export interface CalibrationPort {
   /**
    * Cluster tickets by parent-subtask relationship.
    *
+   * Tickets whose type matches an entry in `excludeTypes` (case-insensitive)
+   * are dropped. Children that referenced an excluded parent are promoted
+   * to independent cluster roots (or to their own parentId chain).
+   *
    * @param tickets - All tickets to cluster.
+   * @param excludeTypes - Ticket types to exclude (default: `["Epic"]`).
    * @returns Clusters: arrays of related ticket IDs keyed by cluster ID.
    */
   clusterTickets(
     tickets: Ticket[],
+    excludeTypes?: string[],
   ): Map<string, Ticket[]>;
 
   /**

@@ -60,6 +60,7 @@ const mockGitClient = {
     hotspots: [],
   }),
   destroy: vi.fn().mockResolvedValue(undefined),
+  resolveAllCommitShas: vi.fn().mockResolvedValue(new Map()),
 } satisfies GitClient;
 
 const mockLlm: LlmClient = {
@@ -499,6 +500,7 @@ describe("ISV Calculation Pipeline — boundary test", () => {
       releaseAll: vi.fn().mockResolvedValue(undefined),
       logStats: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
+      resolveAllCommitShas: vi.fn().mockResolvedValue(new Map()),
     } satisfies GitClient;
 
     const multiRepoMiner: StatusQuoMinerPort = {

@@ -7,30 +7,35 @@ import { createHistoricalCalibrationFromConfig } from "./config-factory.js";
 // Mock all client factories
 // ---------------------------------------------------------------------------
 
-vi.mock("@isv/clients", () => ({
-  createTicketClient: vi.fn().mockResolvedValue({
-    getTickets: vi.fn().mockResolvedValue({ success: true, data: [] }),
-    getTicketsByTimeframe: vi.fn().mockResolvedValue({ success: true, data: [] }),
-  }),
-  createGitClient: vi.fn().mockResolvedValue({
-    repositoryIds: vi.fn().mockReturnValue([]),
-    checkoutAll: vi.fn().mockResolvedValue(new Map()),
-    checkout: vi.fn(),
-    release: vi.fn(),
-    releaseAll: vi.fn().mockResolvedValue(undefined),
-    logStats: vi.fn(),
-    destroy: vi.fn(),
-  }),
-  createLlmClient: vi.fn().mockReturnValue({
-    prompt: vi.fn().mockResolvedValue({ success: true, data: "mock" }),
-  }),
-  createStaticAnalysisClient: vi.fn().mockReturnValue({
-    analyze: vi.fn(),
-  }),
-  createTimeTrackingClient: vi.fn().mockResolvedValue({
-    getTimeSheet: vi.fn().mockResolvedValue({ success: true, data: [] }),
-  }),
-}));
+vi.mock("@isv/clients", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@isv/clients")>();
+  return {
+    ...actual,
+    createTicketClient: vi.fn().mockResolvedValue({
+      getTickets: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      getTicketsByTimeframe: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    }),
+    createGitClient: vi.fn().mockResolvedValue({
+      repositoryIds: vi.fn().mockReturnValue([]),
+      checkoutAll: vi.fn().mockResolvedValue(new Map()),
+      resolveAllCommitShas: vi.fn().mockResolvedValue(new Map()),
+      checkout: vi.fn(),
+      release: vi.fn(),
+      releaseAll: vi.fn().mockResolvedValue(undefined),
+      logStats: vi.fn(),
+      destroy: vi.fn(),
+    }),
+    createLlmClient: vi.fn().mockReturnValue({
+      prompt: vi.fn().mockResolvedValue({ success: true, data: "mock" }),
+    }),
+    createStaticAnalysisClient: vi.fn().mockReturnValue({
+      analyze: vi.fn(),
+    }),
+    createTimeTrackingClient: vi.fn().mockResolvedValue({
+      getTimeSheet: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    }),
+  };
+});
 
 vi.mock("@isv/services", () => ({
   createStatusQuoMiner: vi.fn().mockReturnValue({

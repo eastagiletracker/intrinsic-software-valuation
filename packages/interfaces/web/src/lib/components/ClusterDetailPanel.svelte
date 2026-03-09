@@ -276,6 +276,10 @@
             <span class="font-semibold tabular-nums">{fmt(residual.actualHours)}h</span>
           </div>
           <div class="flex justify-between">
+            <span class="text-text-secondary">Actual Price</span>
+            <span class="font-semibold tabular-nums">{(residual.actualHours * hourlyRate).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</span>
+          </div>
+          <div class="flex justify-between">
             <span class="text-text-secondary">Predicted Hours</span>
             <span class="tabular-nums">{fmt(residual.predictedHours)}h</span>
           </div>

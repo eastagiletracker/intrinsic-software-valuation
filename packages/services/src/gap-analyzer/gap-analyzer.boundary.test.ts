@@ -86,6 +86,8 @@ const mockTicket: Ticket = {
 const mockConfig: ProjectConfig = {
   d3QualityFloor: 1,
   legacyDailyRate: 1000,
+  minCohortSampleSize: 18,
+  excludeTypes: ["Epic"],
 };
 
 function createMockLlm(response: string): LlmClient {
@@ -141,7 +143,7 @@ describe("Gap Analyzer — boundary test", () => {
   it("enforces D3 quality floor from ProjectConfig", async () => {
     const analyzer = createGapAnalyzer();
     const llm = createMockLlm(fixtureResponse);
-    const configWithFloor: ProjectConfig = { d3QualityFloor: 2, legacyDailyRate: 1000 };
+    const configWithFloor: ProjectConfig = { d3QualityFloor: 2, legacyDailyRate: 1000, minCohortSampleSize: 18, excludeTypes: ["Epic"] };
 
     const result = await analyzer.analyze(
       mockBaseline,

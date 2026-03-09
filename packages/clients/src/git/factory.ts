@@ -82,6 +82,21 @@ class DefaultGitClient implements GitClient {
     return results;
   }
 
+  async resolveAllCommitShas(
+    before: IsoTimestamp,
+  ): Promise<Map<string, string>> {
+    const entries = Array.from(this.repos.entries());
+    const shas = await Promise.all(
+      entries.map(([, repo]) => this.port.resolveCommitSha(repo, before)),
+    );
+    const results = new Map<string, string>();
+    for (let i = 0; i < entries.length; i++) {
+      const sha = shas[i];
+      if (sha) results.set(entries[i][0], sha);
+    }
+    return results;
+  }
+
   async checkout(
     repositoryId: string,
     before: IsoTimestamp,

@@ -210,6 +210,7 @@ export async function createHistoricalCalibrationFromConfig(
       gapAnalyzer,
       valuation,
       calibration,
+      cacheDir: cacheBaseDir,
     });
 
     // 5. Cleanup function

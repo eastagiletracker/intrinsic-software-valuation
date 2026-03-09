@@ -425,6 +425,8 @@ Options:
   --llm-concurrency <n>             LLM concurrency (default: 2)
   --recompute-regression [<path>]   Skip fact-finding, reuse clusters from a previous report.
                                     If <path> omitted, auto-detects the latest report.
+  --dry-run                         Check cache coverage without processing. Reports how many
+                                    clusters are cached vs would need full reprocessing.
   --status                          Show calibration run status instead of running
   --d3-quality-floor <1|2|3>        D3 quality floor override
   --min-confidence <number>         Minimum cluster confidence to include
@@ -630,6 +632,15 @@ async function runCalibrate(args: string[]): Promise<void> {
   const rawMinConfidence = findFlag(args, "--min-confidence");
   const minConfidence =
     rawMinConfidence !== undefined ? Number(rawMinConfidence) : undefined;
+  const dryRun = hasFlag(args, "--dry-run");
+
+  // Read excludeTypes from project-config.json pipeline section
+  const pipelineCfg = projectConfig.pipeline as
+    | Record<string, unknown>
+    | undefined;
+  const excludeTypes = Array.isArray(pipelineCfg?.excludeTypes)
+    ? (pipelineCfg.excludeTypes as string[])
+    : undefined;
 
   // --recompute-regression: reuse cluster data from a previous report
   const recomputeFrom = findFlag(args, "--recompute-regression");
@@ -684,6 +695,8 @@ async function runCalibrate(args: string[]): Promise<void> {
   try {
     if (resolvedRecomputeFrom) {
       console.log(`Recomputing regression from: ${resolvedRecomputeFrom}`);
+    } else if (dryRun) {
+      console.log(`Dry run — checking cache coverage for project: ${projectSlug}`);
     } else {
       console.log(`Starting calibration run: ${effectiveRunId}`);
     }
@@ -701,11 +714,20 @@ async function runCalibrate(args: string[]): Promise<void> {
       llmConcurrency,
       onProgress,
       recomputeFrom: resolvedRecomputeFrom,
+      dryRun,
+      excludeTypes,
     });
 
     if (!result.success) {
       console.error(`\nCalibration failed: ${result.error.message}`);
       process.exit(sigintReceived ? 130 : 1);
+    }
+
+    // Dry run: print summary and exit without writing a report file
+    if (dryRun) {
+      console.log("");
+      console.log(result.data.executiveSummary ?? "No summary generated.");
+      return;
     }
 
     // Persist report as JSON file under data/<projectSlug>/calibration/

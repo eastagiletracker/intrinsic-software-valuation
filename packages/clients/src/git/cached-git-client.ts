@@ -32,6 +32,10 @@ export class CachedGitClient implements GitClient {
     return this.inner.checkoutAll(before);
   }
 
+  resolveAllCommitShas(before: IsoTimestamp): Promise<Map<string, string>> {
+    return this.inner.resolveAllCommitShas(before);
+  }
+
   checkout(
     repositoryId: string,
     before: IsoTimestamp,

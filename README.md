@@ -162,31 +162,90 @@ This command runs `@isv/web` via workspace filtering.
 
 ## CLI Usage
 
-All CLI commands are run from the monorepo root via `pnpm cli`:
+All CLI commands are run from the monorepo root via `pnpm cli`. The `--` separator between `pnpm cli` and the command flags is required.
 
 ```bash
-# Show help
 pnpm cli -- --help
-
-# Initialise a new project (creates data/<slug>/ and template config)
-pnpm cli -- init --project my-project
-
-# Calculate ISV for a single ticket (Use Case 2)
-pnpm cli -- calculate PROJ-123 --project my-project
-
-# Run historical calibration (Use Case 1)
-pnpm cli -- calibrate --project my-project
-
-# Calibrate with period and concurrency options
-pnpm cli -- calibrate --project my-project --from 2025-01 --to 2026-02 --concurrency 5
-
-# Check calibration run status
-pnpm cli -- calibrate --status --project my-project
 ```
 
-The `--` separator between `pnpm cli` and the command flags is required.
+### Commands
 
-See `packages/interfaces/cli/README.md` for the full flag reference.
+#### `init` — Initialise a project
+
+Creates `data/<slug>/` with directory structure and template config.
+
+```bash
+pnpm cli -- init --project <slug>
+pnpm cli -- init --project <slug> --warmup   # also build SQLite data layer
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `--project <slug>` | Project slug (required) |
+| `--warmup` | Build SQLite data layer after init |
+
+#### `calculate` — ISV for a single ticket
+
+```bash
+pnpm cli -- calculate <ticketId> --project <slug>
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `<ticketId>` | Ticket ID to calculate ISV for (required, positional) |
+| `--project <slug>` | Project slug (required) |
+| `--json` | Suppress stderr progress; stdout JSON only |
+
+#### `calibrate` — Historical calibration
+
+```bash
+pnpm cli -- calibrate --project <slug> [options]
+```
+
+| Option | Description |
+| ------ | ----------- |
+| `--project <slug>` | Project slug (required) |
+| `--from <YYYY-MM>` | Start of calibration period (default: 18 months before end) |
+| `--to <YYYY-MM>` | End of calibration period (default: current month) |
+| `--run-id <id>` | Resume a specific run |
+| `--concurrency <n>` | Cluster concurrency (default: 6) |
+| `--llm-concurrency <n>` | LLM concurrency (default: 2) |
+| `--recompute-regression [<path>]` | Skip fact-finding, reuse clusters from a previous report. Auto-detects latest report if path omitted. |
+| `--dry-run` | Check cache coverage without processing. Reports how many clusters are cached vs would need full reprocessing. |
+| `--d3-quality-floor <1\|2\|3>` | D3 quality floor override |
+| `--min-confidence <number>` | Minimum cluster confidence to include |
+| `--status` | Show calibration run status instead of running |
+| `--json` | Suppress stderr progress; stdout JSON only |
+
+**Re-run strategies:**
+
+- **`--recompute-regression`** — Reads a previous output file, skips all fact-finding (git, LLM), re-runs only regression + executive summary. Completes in seconds.
+- **`--dry-run`** — Probes caches for every cluster and reports hit/miss counts. Use this to verify cache coverage before committing to a full re-run.
+- **Full re-run** — With warm caches, the pipeline skips git worktree checkouts for clusters where all cached results (SQM, architecture scanner, gap analyzer) are present. Progress output shows `cache-hit` vs `completed` per cluster.
+
+#### `calibrate --status` — Run status
+
+```bash
+pnpm cli -- calibrate --status --project <slug>
+pnpm cli -- calibrate --status --project <slug> --run-id <id>
+```
+
+#### `cache-purge` — Delete cached data
+
+```bash
+pnpm cli -- cache-purge --project <slug>
+```
+
+Deletes cached architecture scanner, status quo miner, and gap analyzer data for a project.
+
+### Global options
+
+| Option | Description |
+| ------ | ----------- |
+| `--help` | Show help (use with a command for command-specific help) |
+| `--json` | Suppress stderr progress output (stdout JSON only) |
+
+See `packages/interfaces/cli/README.md` for additional details.
 
 For conventions and contribution workflow, see:
 

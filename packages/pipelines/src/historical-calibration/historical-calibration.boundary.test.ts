@@ -82,6 +82,7 @@ const mockGitClient = {
     hotspots: [],
   }),
   destroy: vi.fn(),
+  resolveAllCommitShas: vi.fn().mockResolvedValue(new Map()),
 } satisfies GitClient;
 
 const mockLlm: LlmClient = {

@@ -20,6 +20,9 @@ export interface GitClient {
   /** Time-travel: checkout a single repo by ID. */
   checkout(repositoryId: string, before: IsoTimestamp): Promise<WorkingTree>;
 
+  /** Resolve the commit SHA for all repos at a timestamp (no worktree created). */
+  resolveAllCommitShas(before: IsoTimestamp): Promise<Map<string, string>>;
+
   /** Release a single worktree. */
   release(tree: WorkingTree): Promise<void>;
 

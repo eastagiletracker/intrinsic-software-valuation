@@ -110,7 +110,7 @@ function makeTicket(id = "PROJ-42"): Ticket {
 }
 
 function makeConfig(): ProjectConfig {
-  return { d3QualityFloor: 1, legacyDailyRate: 1000 };
+  return { d3QualityFloor: 1, legacyDailyRate: 1000, minCohortSampleSize: 18, excludeTypes: ["Epic"] };
 }
 
 function mockInner(result: Result<GapAnalysisResult> = makeSuccessResult()): GapAnalyzerPort {
@@ -195,8 +195,8 @@ describe("CachedGapAnalyzerService", () => {
     const baseline = makeBaseline();
     const ticket = makeTicket();
 
-    await cached.analyze(baseline, ticket, { d3QualityFloor: 1, legacyDailyRate: 1000 }, llm);
-    await cached.analyze(baseline, ticket, { d3QualityFloor: 2, legacyDailyRate: 1000 }, llm);
+    await cached.analyze(baseline, ticket, { d3QualityFloor: 1, legacyDailyRate: 1000, minCohortSampleSize: 18, excludeTypes: ["Epic"] }, llm);
+    await cached.analyze(baseline, ticket, { d3QualityFloor: 2, legacyDailyRate: 1000, minCohortSampleSize: 18, excludeTypes: ["Epic"] }, llm);
 
     const key1 = computeSpy.mock.calls[0][0];
     const key2 = computeSpy.mock.calls[1][0];

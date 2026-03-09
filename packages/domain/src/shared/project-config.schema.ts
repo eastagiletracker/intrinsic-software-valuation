@@ -36,6 +36,15 @@ export const ProjectConfigSchema = z
           "selected as the primary calibration tier. Defaults to 18 (= 2× feature count). " +
           "Lower values allow smaller high-confidence cohorts to drive the result.",
       ),
+    excludeTypes: z
+      .array(z.string())
+      .default(["Epic"])
+      .describe(
+        "Ticket types to exclude from calibration clustering. " +
+          "Tickets of these types are dropped; their children are promoted " +
+          "to independent cluster roots. Comparison is case-insensitive. " +
+          "Defaults to ['Epic'] — epics are containers, not ship units.",
+      ),
   })
   .describe(
     "Project-level ISV configuration. " +

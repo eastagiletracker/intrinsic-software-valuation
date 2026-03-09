@@ -27,6 +27,27 @@ export class FileCache {
   }
 
   /**
+   * Read-only cache probe: return the cached value if present and valid,
+   * or `undefined` on miss. Never triggers a compute.
+   */
+  async get<T>(key: string, schema?: ZodType<T>): Promise<T | undefined> {
+    if (!this.config.enabled) return undefined;
+
+    const filePath = join(this.config.cacheDir, `${key}.json`);
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      if (schema) {
+        const result = schema.safeParse(parsed);
+        return result.success ? result.data : undefined;
+      }
+      return parsed as T;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Return a cached result or compute, cache, and return a fresh one.
    *
    * @param key    - Relative cache key (e.g. `jira/getTickets/ab12cd34`).

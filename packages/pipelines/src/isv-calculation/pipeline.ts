@@ -74,6 +74,8 @@ class IsvCalculationPipeline implements IsvCalculationPipelinePort {
       const projectConfig: ProjectConfig = {
         d3QualityFloor: config.d3QualityFloor ?? 1,
         legacyDailyRate: 1000,
+        minCohortSampleSize: 18,
+        excludeTypes: ["Epic"],
       };
 
       // Step 1: Fetch ticket + subtasks from Jira

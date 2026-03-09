@@ -58,6 +58,12 @@ export interface GitPort {
     workBasePath: string,
   ): Promise<WorkingTree>;
 
+  /** Resolve the commit SHA at a timestamp without creating a worktree. */
+  resolveCommitSha(
+    repo: PreparedRepo,
+    before: IsoTimestamp,
+  ): Promise<string | undefined>;
+
   /** Remove the worktree and clean up the temporary directory. */
   release(tree: WorkingTree): Promise<void>;
 

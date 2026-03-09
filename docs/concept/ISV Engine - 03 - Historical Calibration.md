@@ -47,7 +47,7 @@ Aggregates volume and intensity signals such as LoC, complexity, and distributio
 
 ### Scope Definition and Filter Rules
 
-- No epic aggregation: The ship unit is a story or task including subtasks.
+- No epic aggregation: The ship unit is a story or task including subtasks. Epics are excluded from clustering by default (`excludeTypes: ["Epic"]` in `ProjectConfig`). Children of excluded epics are promoted to independent cluster roots. Phantom parents (referenced via `parentId` but absent from the dataset) are treated identically — their children become standalone clusters.
 - Ignore links: Only explicit parent-subtask hierarchy is considered.
 - Knowledge-Based Value (KBV): Captures hours without code references and hours without explicit ticket references.
 

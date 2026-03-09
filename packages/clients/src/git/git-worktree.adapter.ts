@@ -243,6 +243,26 @@ export class GitWorktreeAdapter implements GitPort {
   }
 
   /**
+   * Resolve the commit SHA at a given timestamp without creating a worktree.
+   * Returns `undefined` when no commit exists before the timestamp.
+   */
+  async resolveCommitSha(
+    repo: PreparedRepo,
+    before: IsoTimestamp,
+  ): Promise<string | undefined> {
+    try {
+      const result = await execa(
+        "git",
+        ["log", "--all", "--format=%H", `--before=${before}`, "-1"],
+        { cwd: repo.repoPath },
+      );
+      return parseCommitSha(result.stdout);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Remove a worktree and clean up the temporary directory.
    */
   async release(tree: WorkingTree): Promise<void> {

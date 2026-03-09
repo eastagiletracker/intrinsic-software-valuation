@@ -71,6 +71,113 @@ describe("Calibration Service — boundary test", () => {
       const clusters = clusterTickets([]);
       expect(clusters.size).toBe(0);
     });
+
+    it("excludes Epic tickets and promotes their children to independent clusters", () => {
+      const epic: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-100",
+        type: "Epic",
+        title: "A big epic",
+      };
+      const storyUnderEpic1: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-101",
+        type: "Story",
+        title: "Story under epic",
+        parentId: "PROJ-100",
+      };
+      const storyUnderEpic2: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-102",
+        type: "Story",
+        title: "Another story under epic",
+        parentId: "PROJ-100",
+      };
+      const clusters = clusterTickets([epic, storyUnderEpic1, storyUnderEpic2]);
+
+      // Epic itself must be excluded
+      expect(clusters.has("PROJ-100")).toBe(false);
+      // Each story becomes its own cluster root
+      expect(clusters.size).toBe(2);
+      expect(clusters.get("PROJ-101")).toEqual([storyUnderEpic1]);
+      expect(clusters.get("PROJ-102")).toEqual([storyUnderEpic2]);
+    });
+
+    it("excludeTypes comparison is case-insensitive", () => {
+      const epic: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-200",
+        type: "epic",
+        title: "lowercase epic",
+      };
+      const child: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-201",
+        type: "Story",
+        parentId: "PROJ-200",
+      };
+      const clusters = clusterTickets([epic, child], ["Epic"]);
+      expect(clusters.has("PROJ-200")).toBe(false);
+      expect(clusters.size).toBe(1);
+      expect(clusters.get("PROJ-201")).toEqual([child]);
+    });
+
+    it("promotes children of phantom parents to independent clusters", () => {
+      // Parent not in dataset (e.g. Epic not exported from Jira)
+      const orphan1: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-301",
+        type: "Story",
+        parentId: "PROJ-300", // not in dataset
+      };
+      const orphan2: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-302",
+        type: "Story",
+        parentId: "PROJ-300",
+      };
+      const clusters = clusterTickets([orphan1, orphan2]);
+
+      // Each orphan should be its own cluster (not lumped under phantom PROJ-300)
+      expect(clusters.size).toBe(2);
+      expect(clusters.get("PROJ-301")).toEqual([orphan1]);
+      expect(clusters.get("PROJ-302")).toEqual([orphan2]);
+    });
+
+    it("preserves subtask clustering when parent is a Story (not excluded)", () => {
+      const story: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-400",
+        type: "Story",
+      };
+      const sub: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-401",
+        type: "Sub-Task",
+        parentId: "PROJ-400",
+      };
+      const clusters = clusterTickets([story, sub]);
+      expect(clusters.size).toBe(1);
+      expect(clusters.get("PROJ-400")).toHaveLength(2);
+    });
+
+    it("allows overriding excludeTypes to exclude nothing", () => {
+      const epic: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-500",
+        type: "Epic",
+      };
+      const child: Ticket = {
+        ...parentTicket,
+        ticketId: "PROJ-501",
+        type: "Story",
+        parentId: "PROJ-500",
+      };
+      // Pass empty array → no types excluded
+      const clusters = clusterTickets([epic, child], []);
+      expect(clusters.size).toBe(1);
+      expect(clusters.get("PROJ-500")).toHaveLength(2);
+    });
   });
 
   describe("time attribution", () => {

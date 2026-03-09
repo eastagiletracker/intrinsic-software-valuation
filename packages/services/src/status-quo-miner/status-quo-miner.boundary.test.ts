@@ -48,6 +48,7 @@ const mockGitClient = {
     ],
   }),
   destroy: vi.fn(),
+  resolveAllCommitShas: vi.fn().mockResolvedValue(new Map()),
 } satisfies GitClient;
 
 const testRepo: WorkingTree = {

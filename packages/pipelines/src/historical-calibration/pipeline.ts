@@ -14,8 +14,16 @@ import type {
   CohortKey,
   CohortOverviewEntry,
   CohortCalibration,
+  CodeHealthReport,
+  SystemContext,
+  GapAnalysisResult,
 } from "@isv/domain";
-import { CalibrationRunOutputSchema } from "@isv/domain";
+import {
+  CalibrationRunOutputSchema,
+  CodeHealthReportSchema,
+  SystemContextSchema,
+  GapAnalysisResultSchema,
+} from "@isv/domain";
 import type {
   TicketClient,
   GitClient,
@@ -23,6 +31,7 @@ import type {
   TimeTrackingClient,
   WorkingTree,
 } from "@isv/clients";
+import { buildCacheKey, FileCache } from "@isv/clients";
 import type {
   StatusQuoMinerPort,
   ArchitectureScannerPort,
@@ -206,6 +215,7 @@ class HistoricalCalibrationPipeline
     private readonly valuation: ValuationPort,
     private readonly calibration: CalibrationPort,
     private readonly runStore?: RunStore,
+    private readonly cacheProbe?: FileCache,
   ) {}
 
   async run(
@@ -256,6 +266,7 @@ class HistoricalCalibrationPipeline
         d3QualityFloor: config.d3QualityFloor ?? 1,
         legacyDailyRate: 1000,
         minCohortSampleSize: config.minCohortSampleSize ?? 18,
+        excludeTypes: config.excludeTypes ?? ["Epic"],
       };
       const minConfidence = config.minConfidence ?? 0.7;
 
@@ -288,7 +299,10 @@ class HistoricalCalibrationPipeline
 
       // Step 2: Cluster tickets
       emit({ phase: "clustering", current: 2, total: 8 });
-      const ticketClusters = this.calibration.clusterTickets(tickets);
+      const ticketClusters = this.calibration.clusterTickets(
+        tickets,
+        projectConfig.excludeTypes,
+      );
 
       // Step 3: Load time entries (with timeframe filter)
       emit({ phase: "loading-time-entries", current: 3, total: 8 });
@@ -307,6 +321,11 @@ class HistoricalCalibrationPipeline
       // Step 5: Calculate DQS
       emit({ phase: "calculating-dqs", current: 5, total: 8 });
       const dqs = this.calibration.calculateDqs(attributed);
+
+      // --- Dry run: check cache coverage without processing ---
+      if (config.dryRun) {
+        return this.dryRunCacheCheck(ticketClusters, config, projectConfig, attributed, emit);
+      }
 
       // Step 6: For each cluster, run fact finding + gap analysis + valuation
       const shipUnitClusters: ShipUnitCluster[] = [];
@@ -479,7 +498,7 @@ class HistoricalCalibrationPipeline
                   current: completedCount,
                   total: totalClusters,
                   clusterId,
-                  status: "completed",
+                  status: result.cacheHit ? "cache-hit" : "completed",
                 });
               }
             } catch (err) {
@@ -812,6 +831,7 @@ class HistoricalCalibrationPipeline
       d3QualityFloor: config.d3QualityFloor ?? 1,
       legacyDailyRate: 1000,
       minCohortSampleSize: config.minCohortSampleSize ?? 18,
+      excludeTypes: config.excludeTypes ?? ["Epic"],
     };
 
     // Reuse period from previous result
@@ -968,6 +988,307 @@ class HistoricalCalibrationPipeline
   }
 
   // -----------------------------------------------------------------------
+  // Dry-run cache coverage check
+  // -----------------------------------------------------------------------
+
+  /**
+   * Check cache coverage for every cluster without actually processing.
+   * Returns a CalibrationRunOutput-shaped result whose executiveSummary
+   * contains the coverage report (cache hits vs misses).
+   */
+  private async dryRunCacheCheck(
+    ticketClusters: Map<string, Ticket[]>,
+    config: HistoricalCalibrationConfig,
+    projectConfig: ProjectConfig,
+    attributed: Array<{
+      attributedClusterId?: string;
+      attributedHours: number;
+      attributionReason: string;
+      [key: string]: unknown;
+    }>,
+    emit: (event: CalibrationProgressEvent) => void,
+  ): Promise<Result<CalibrationRunOutput>> {
+    const minConfidence = config.minConfidence ?? 0.7;
+    const clusterEntries = [...ticketClusters];
+    const totalClusters = clusterEntries.length;
+
+    let cacheHits = 0;
+    let cacheMisses = 0;
+    const missedClusterIds: string[] = [];
+
+    emit({ phase: "processing-cluster", current: 0, total: totalClusters, detail: "Checking cache coverage…" });
+
+    for (let i = 0; i < clusterEntries.length; i++) {
+      const [clusterId, clusterTickets] = clusterEntries[i];
+      let hit = false;
+      try {
+        const cached = await this.tryCacheFastPath(
+          clusterId, clusterTickets, projectConfig, minConfidence, attributed,
+        );
+        hit = cached !== undefined;
+      } catch {
+        // probe failed → miss
+      }
+      if (hit) {
+        cacheHits++;
+        emit({
+          phase: "processing-cluster",
+          current: i + 1,
+          total: totalClusters,
+          clusterId,
+          status: "cache-hit",
+        });
+      } else {
+        cacheMisses++;
+        missedClusterIds.push(clusterId);
+        emit({
+          phase: "processing-cluster",
+          current: i + 1,
+          total: totalClusters,
+          clusterId,
+          status: "processing",
+          detail: "CACHE MISS — would require full processing",
+        });
+      }
+    }
+
+    emit({ phase: "complete", current: totalClusters, total: totalClusters });
+
+    const pct = totalClusters > 0
+      ? ((cacheHits / totalClusters) * 100).toFixed(1)
+      : "0.0";
+
+    const summaryLines = [
+      `Dry-run cache coverage report`,
+      `═══════════════════════════════`,
+      `Total clusters:  ${totalClusters}`,
+      `Cache hits:      ${cacheHits} (${pct}%)`,
+      `Cache misses:    ${cacheMisses}`,
+      ``,
+    ];
+    if (cacheMisses === 0) {
+      summaryLines.push(
+        `✓ All clusters are fully cached. A re-run will NOT trigger any git checkouts or LLM calls.`,
+        `  Use the full pipeline command to re-run — it will complete quickly using only cached data.`,
+      );
+    } else {
+      summaryLines.push(
+        `✗ ${cacheMisses} cluster(s) would require full processing (git checkout + LLM analysis).`,
+        `  If you only need updated regression, use --recompute-regression instead.`,
+        ``,
+        `Clusters missing cache:`,
+        ...missedClusterIds.map((id) => `  - ${id}`),
+      );
+    }
+    const summaryText = summaryLines.join("\n");
+
+    // Return a minimal result — the report text is in executiveSummary
+    return {
+      success: true,
+      data: {
+        result: {
+          shipRateHoursPerIsv: 0,
+          periodStart: config.periodStart ?? "",
+          periodEnd: config.periodEnd ?? "",
+        } as CalibrationRunOutput["result"],
+        clusters: [],
+        residuals: [],
+        skippedClusters: [],
+        executiveSummary: summaryText,
+      },
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Cache-probe fast path (skip git worktree checkout on cache hits)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Attempt to assemble a ShipUnitCluster entirely from cached data,
+   * without creating git worktrees. Returns `undefined` if any cache
+   * lookup misses — caller should fall back to the full checkout path.
+   */
+  private async tryCacheFastPath(
+    clusterId: string,
+    clusterTickets: Ticket[],
+    projectConfig: ProjectConfig,
+    minConfidence: number,
+    attributed: Array<{
+      attributedClusterId?: string;
+      attributedHours: number;
+      attributionReason: string;
+      [key: string]: unknown;
+    }>,
+  ): Promise<{ skipped?: boolean; reason?: string; data?: ShipUnitCluster } | undefined> {
+    if (!this.cacheProbe) return undefined;
+
+    const primaryTicket = clusterTickets[0];
+    const timestampT0 = primaryTicket.createdAt;
+
+    // 1. Resolve commit SHAs without creating worktrees (cheap git log)
+    const shaMap = await this.gitClient.resolveAllCommitShas(timestampT0);
+    const repoIds = this.gitClient.repositoryIds().filter((id) => shaMap.has(id));
+    if (repoIds.length === 0) return undefined;
+
+    // 2. Probe SQM cache for each repo
+    const sqmReports: CodeHealthReport[] = [];
+    for (const repoId of repoIds) {
+      const key = buildCacheKey("status-quo-miner", "mine", {
+        repositoryId: repoId,
+        commitSha: shaMap.get(repoId)!,
+      });
+      const hit = await this.cacheProbe.get<CodeHealthReport>(key, CodeHealthReportSchema);
+      if (!hit) return undefined; // cache miss → fall back
+      sqmReports.push({ ...hit, timestamp: timestampT0 });
+    }
+
+    // 3. Probe architecture scanner cache (first repo)
+    const firstRepoId = repoIds[0];
+    const scanKey = buildCacheKey("architecture-scanner", "scan", {
+      repositoryId: firstRepoId,
+      commitSha: shaMap.get(firstRepoId)!,
+    });
+    const systemContext = await this.cacheProbe.get<SystemContext>(scanKey, SystemContextSchema);
+    if (!systemContext) return undefined; // cache miss → fall back
+
+    // 4. Derive C2 and build SystemBaseline for gap analyzer key
+    const c2 = this.valuation.deriveC2(sqmReports[0].healthScores);
+    const systemBaseline = {
+      timestamp: timestampT0,
+      repositories: sqmReports.map((report) => ({
+        systemContext,
+        codeHealthReport: report,
+        c2State: c2,
+      })),
+      effectiveC2: c2,
+    };
+
+    // 5. Probe gap analyzer cache — build key using same logic as CachedGapAnalyzerService
+    const gapKey = buildCacheKey("gap-analyzer", "analyze", {
+      ticketId: primaryTicket.ticketId,
+      ticketType: primaryTicket.type,
+      ticketTitle: primaryTicket.title,
+      ticketDescription: primaryTicket.description,
+      d3QualityFloor: projectConfig.d3QualityFloor,
+      repos: systemBaseline.repositories.map((r) => {
+        const sc = r.systemContext;
+        return {
+          repositoryId: sc.repository.repositoryId,
+          systemArchetype: sc.systemArchetype,
+          languages: sc.techStack.languages,
+          frameworks: sc.techStack.frameworks,
+          inboundProtocols: sc.adapterCatalog.inbound.map((a) => a.protocol),
+          outboundSystems: sc.adapterCatalog.outbound.map((a) => a.systemName),
+          patterns: sc.corePatterns.map((p) => p.patternName),
+          domainModels: sc.domainModels,
+        };
+      }),
+    });
+    const gapResult = await this.cacheProbe.get<GapAnalysisResult>(gapKey, GapAnalysisResultSchema);
+    if (!gapResult) return undefined; // cache miss → fall back
+
+    // === All caches hit — assemble ShipUnitCluster without checkout ===
+
+    // Confidence gate
+    if (gapResult.meta.confidenceScore < minConfidence) {
+      return {
+        skipped: true,
+        reason: `Low confidence: ${gapResult.meta.confidenceScore} < ${minConfidence}`,
+      };
+    }
+
+    // ISV factors + valuation
+    const scoring = gapResult.isvScoring;
+    const factors: IsvFactors = {
+      A1_Data: scoring.A1_Data.score,
+      A2_UX: scoring.A2_UX.score,
+      B1_Logic: scoring.B1_Logic.score,
+      C1_Integration: scoring.C1_Integration.score,
+      C2_State: c2,
+      D3_Quality: scoring.D3_Quality.score,
+    };
+    const isvResult = this.valuation.calculate(clusterId, factors);
+
+    // Time attribution
+    const clusterEntries = attributed.filter((a) => a.attributedClusterId === clusterId);
+    const clusterHours = clusterEntries.reduce((sum, a) => sum + a.attributedHours, 0);
+    let directMatchHours = 0;
+    let splitHours = 0;
+    for (const entry of clusterEntries) {
+      if (entry.attributionReason.startsWith("Multi-ID split:")) {
+        splitHours += entry.attributedHours;
+      } else {
+        directMatchHours += entry.attributedHours;
+      }
+    }
+
+    // Git changes — logStats works on bare clone, no worktree needed
+    let locAdded = 0;
+    let locDeleted = 0;
+    let filesChanged = 0;
+    let allHotspots: Array<{ file: string; changeCount: number }> = [];
+    for (const repoId of repoIds) {
+      try {
+        const stats = await this.gitClient.logStats(repoId, { since: timestampT0 });
+        locAdded += stats.linesAdded;
+        locDeleted += stats.linesDeleted;
+        filesChanged += stats.filesChanged;
+        if (stats.hotspots) allHotspots = allHotspots.concat(stats.hotspots);
+      } catch {
+        // skip on failure
+      }
+    }
+
+    const distributionEntropy = computeDistributionEntropy(allHotspots);
+    const cyclomaticComplexityDelta = Math.round((locAdded - locDeleted) * 0.05);
+    const intensityScore = computeChangeIntensityScore(
+      locAdded + locDeleted, distributionEntropy, cyclomaticComplexityDelta,
+    );
+
+    const hasGitChanges = locAdded > 0 || locDeleted > 0 || filesChanged > 0;
+    const directMatchRatio = clusterHours > 0 ? directMatchHours / clusterHours : 0;
+    const dataConfidence: "high" | "medium" | "low" =
+      !hasGitChanges || clusterHours < 1
+        ? "low"
+        : directMatchRatio >= 0.8
+          ? "high"
+          : "medium";
+
+    return {
+      data: {
+        clusterId,
+        ids: clusterTickets.map((t) => t.ticketId),
+        metadata: {
+          type: primaryTicket.type,
+          storyPoints: primaryTicket.storyPoints,
+          timestampT0,
+        },
+        isvAnalysis: {
+          formulaVersion: isvResult.formulaVersion,
+          isvScore: isvResult.isvScore,
+          confidence: gapResult.meta.confidenceScore,
+          factors: isvResult.factors,
+          breakdown: isvResult.breakdown,
+        },
+        metrics: {
+          totalHours: clusterHours,
+          directMatchHours,
+          splitHours,
+          dataConfidence,
+          gitChanges: {
+            locAdded,
+            locDeleted,
+            filesChanged,
+            distributionEntropy,
+            cyclomaticComplexityDelta,
+            changeIntensityScore: intensityScore,
+          },
+        },
+      },
+    };
+  }
+
+  // -----------------------------------------------------------------------
   // Per-cluster processing (extracted for PQueue tasks)
   // -----------------------------------------------------------------------
 
@@ -987,7 +1308,18 @@ class HistoricalCalibrationPipeline
     skipped?: boolean;
     reason?: string;
     data?: ShipUnitCluster;
+    cacheHit?: boolean;
   }> {
+    // Try cache-only fast path first (no git worktree checkout)
+    try {
+      const cached = await this.tryCacheFastPath(
+        clusterId, clusterTickets, projectConfig, minConfidence, attributed,
+      );
+      if (cached) return { ...cached, cacheHit: true };
+    } catch {
+      // Cache probe failed — fall through to full checkout path
+    }
+
     const primaryTicket = clusterTickets[0];
     // T0 derivation: use ticket creation date as proxy
     const timestampT0 = primaryTicket.createdAt;
@@ -1228,6 +1560,12 @@ export interface HistoricalCalibrationDeps {
   calibration: CalibrationPort;
   /** Optional RunStore for persistence. When omitted, JSONL checkpoint is used. */
   runStore?: RunStore;
+  /**
+   * Optional cache directory for probing. When provided, the pipeline
+   * resolves commit SHAs cheaply and probes caches before doing a full
+   * git worktree checkout — skipping the checkout entirely on cache hits.
+   */
+  cacheDir?: string;
 }
 
 /**
@@ -1239,6 +1577,9 @@ export interface HistoricalCalibrationDeps {
 export function createHistoricalCalibrationPipeline(
   deps: HistoricalCalibrationDeps,
 ): HistoricalCalibrationPipelinePort {
+  const cacheProbe = deps.cacheDir
+    ? new FileCache({ enabled: true, cacheDir: deps.cacheDir })
+    : undefined;
   return new HistoricalCalibrationPipeline(
     deps.ticketClient,
     deps.gitClient,
@@ -1250,5 +1591,6 @@ export function createHistoricalCalibrationPipeline(
     deps.valuation,
     deps.calibration,
     deps.runStore,
+    cacheProbe,
   );
 }

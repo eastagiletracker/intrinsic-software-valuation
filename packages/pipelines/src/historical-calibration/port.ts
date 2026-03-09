@@ -55,4 +55,18 @@ export interface HistoricalCalibrationConfig {
    * re-executes regression (Step 7) and executive summary (Step 8).
    */
   recomputeFrom?: string;
+  /**
+   * When true, the pipeline performs all setup (tickets, clustering,
+   * time attribution, DQS) and then checks cache coverage for every
+   * cluster without actually processing anything. Returns a summary
+   * of cache hits vs misses.
+   */
+  dryRun?: boolean;
+  /**
+   * Ticket types to exclude from calibration clustering.
+   * Tickets of excluded types are dropped; their children are promoted
+   * to independent cluster roots. Case-insensitive comparison.
+   * Defaults to `["Epic"]`.
+   */
+  excludeTypes?: string[];
 }
