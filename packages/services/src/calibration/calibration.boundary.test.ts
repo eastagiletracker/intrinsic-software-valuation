@@ -468,7 +468,7 @@ describe("Calibration Service — boundary test", () => {
         isvAnalysis: {
           formulaVersion: "3.4",
           confidence: 0.9,
-          factors: { A1_Data: 1, A2_UX: 1, B1_Logic: 1, C1_Integration: 1, C2_State: 1, D3_Quality: 1 },
+          factors: { A1_Data: 1, A2_UX: 1, B1_Logic: 1, C1_Integration: 1, C2_State: 1, D3_Quality: 1 } as const,
           breakdown: { poValue: 1, archFactor: 1, qualityMultiplier: 1 },
         },
       };
