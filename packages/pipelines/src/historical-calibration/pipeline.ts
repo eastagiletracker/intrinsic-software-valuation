@@ -48,7 +48,7 @@ import type {
   CalibrationProgressEvent,
   CalibrationProgressCallback,
 } from "./progress.js";
-import { retryAsync } from "../shared/retry.js";
+import { retryAsync } from "@isv/clients";
 import {
   CheckpointWriter,
   CheckpointReader,

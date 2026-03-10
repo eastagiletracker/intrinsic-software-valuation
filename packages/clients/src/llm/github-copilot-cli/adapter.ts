@@ -25,13 +25,16 @@ export function isLlmStallError(err: unknown): boolean {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * Default stall timeout (60 s).
+ * Default stall timeout (30 s).
  *
  * If the child process produces no stdout/stderr data for this duration it
  * is considered hung and killed early — without waiting for the full hard
  * timeout.  Set to `0` or `undefined` to disable.
+ *
+ * Reduced from 60 s to 30 s to fail faster on unresponsive LLM calls and
+ * allow retry logic to recover more quickly.
  */
-const DEFAULT_STALL_TIMEOUT_MS = 60_000;
+const DEFAULT_STALL_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // ANSI / progress stripping

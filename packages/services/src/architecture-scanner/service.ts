@@ -4,6 +4,7 @@ import { join, relative, extname } from "node:path";
 
 import { SystemContextSchema, type SystemContext, type Result } from "@isv/domain";
 import type { LlmClient } from "@isv/clients";
+import { retryAsync, isLlmStallError } from "@isv/clients";
 
 import type { ArchitectureScannerPort } from "./port.js";
 
@@ -527,13 +528,24 @@ class ArchitectureScannerService implements ArchitectureScannerPort {
       const dirSample = await sampleDirectory(workingDir);
       const userPrompt = `Analyze this repository and produce a SystemContext JSON:\n\n${dirSample}`;
 
-      // Call LLM
-      const llmResult = await llm.prompt({
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt,
-        temperature: 0.2,
-        maxTokens: 4000,
-      });
+      // Call LLM with retry for stall errors
+      const llmResult = await retryAsync(
+        () =>
+          llm.prompt({
+            systemPrompt: SYSTEM_PROMPT,
+            userPrompt,
+            temperature: 0.2,
+            maxTokens: 4000,
+          }),
+        {
+          maxRetries: 2,
+          baseDelayMs: 2_000,
+          isStallError: isLlmStallError,
+          stallBaseDelayMs: 5_000,
+          stallMaxRetries: 3,
+          shouldRetry: (err) => isLlmStallError(err),
+        },
+      );
 
       if (!llmResult.success) {
         return llmResult;

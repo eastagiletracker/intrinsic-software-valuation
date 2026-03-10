@@ -35,6 +35,9 @@ importers:
       fast-xml-parser:
         specifier: ^5.4.2
         version: 5.4.2
+      p-retry:
+        specifier: ^7.1.1
+        version: 7.1.1
       pdfjs-dist:
         specifier: ^5.5.207
         version: 5.5.207

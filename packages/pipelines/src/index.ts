@@ -3,7 +3,8 @@ export * from "./isv-calculation/index.js";
 export * from "./historical-calibration/index.js";
 
 // Shared utilities
-export { retryAsync, type RetryOptions, type FailedAttemptError } from "./shared/retry.js";
+// Re-export retry utilities from @isv/clients for backwards compatibility.
+export { retryAsync, type RetryOptions, type FailedAttemptError } from "@isv/clients";
 export { createLlmGate, type LlmGate } from "./shared/llm-semaphore.js";
 export type {
   RunStore,
