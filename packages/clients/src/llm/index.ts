@@ -1,6 +1,10 @@
 // LLM client — port (stable interface) and adapter implementations.
 export type { LlmPort, LlmPromptInput, LlmPromptResult } from "./port.js";
-export { GithubCopilotCliAdapter } from "./github-copilot-cli/index.js";
+export {
+  GithubCopilotCliAdapter,
+  isLlmStallError,
+  LLM_STALL_CODE,
+} from "./github-copilot-cli/index.js";
 
 // High-level client, schemas, and factory.
 export type { LlmClient } from "./client.js";

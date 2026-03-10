@@ -31,7 +31,7 @@ import type {
   TimeTrackingClient,
   WorkingTree,
 } from "@isv/clients";
-import { buildCacheKey, FileCache } from "@isv/clients";
+import { buildCacheKey, FileCache, isLlmStallError } from "@isv/clients";
 import type {
   StatusQuoMinerPort,
   ArchitectureScannerPort,
@@ -1362,12 +1362,14 @@ class HistoricalCalibrationPipeline
 
       // Architecture Scanner (first repo) — retryable (LLM I/O), gated
       const scanResult = await llmGate(() =>
-        retryAsync(() =>
-          this.architectureScanner.scan(
-            workingTrees[0].workingDir,
-            this.llmClient,
-            workingTrees[0].commitSha,
-          ),
+        retryAsync(
+          () =>
+            this.architectureScanner.scan(
+              workingTrees[0].workingDir,
+              this.llmClient,
+              workingTrees[0].commitSha,
+            ),
+          { isStallError: isLlmStallError },
         ),
       );
       if (!scanResult.success) {
@@ -1395,13 +1397,15 @@ class HistoricalCalibrationPipeline
 
       // Gap Analyzer — retryable (LLM I/O), gated
       const gapResult = await llmGate(() =>
-        retryAsync(() =>
-          this.gapAnalyzer.analyze(
-            systemBaseline,
-            primaryTicket,
-            projectConfig,
-            this.llmClient,
-          ),
+        retryAsync(
+          () =>
+            this.gapAnalyzer.analyze(
+              systemBaseline,
+              primaryTicket,
+              projectConfig,
+              this.llmClient,
+            ),
+          { isStallError: isLlmStallError },
         ),
       );
       if (!gapResult.success) {
