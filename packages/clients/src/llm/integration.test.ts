@@ -11,7 +11,8 @@ import { createLlmClient } from "./factory.js";
 
 const mockPrompt = vi.fn();
 
-vi.mock("./github-copilot-cli/index.js", () => ({
+vi.mock("./github-copilot-cli/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./github-copilot-cli/index.js")>()),
   GithubCopilotCliAdapter: class {
     prompt = mockPrompt;
   },

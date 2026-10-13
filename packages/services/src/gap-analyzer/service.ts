@@ -8,7 +8,7 @@ import {
   type D3Quality,
 } from "@isv/domain";
 import type { LlmClient } from "@isv/clients";
-import { retryAsync, isLlmStallError } from "@isv/clients";
+import { retryOnLlmStall } from "@isv/clients";
 
 import type { GapAnalyzerPort } from "./port.js";
 
@@ -168,7 +168,7 @@ Description: ${ticket.description}
 Produce the GapAnalysisResult JSON now.`;
 
       // Call LLM with retry for stall errors
-      const llmResult = await retryAsync(
+      const llmResult = await retryOnLlmStall(
         () =>
           llm.prompt({
             systemPrompt: SYSTEM_PROMPT,
@@ -179,10 +179,8 @@ Produce the GapAnalysisResult JSON now.`;
         {
           maxRetries: 2,
           baseDelayMs: 2_000,
-          isStallError: isLlmStallError,
           stallBaseDelayMs: 5_000,
           stallMaxRetries: 3,
-          shouldRetry: (err) => isLlmStallError(err),
         },
       );
 

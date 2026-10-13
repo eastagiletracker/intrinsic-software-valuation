@@ -13,6 +13,7 @@ Provides a high-level `LlmClient` that abstracts LLM provider details, exposing 
 | `port.ts` | `LlmPort` interface — source-agnostic contract for LLM adapters |
 | `client.ts` | `LlmClient` interface — high-level API returning `Result<string>` |
 | `factory.ts` | `createLlmClient(config)` — factory that resolves the correct adapter |
+| `stall-retry.ts` | `retryOnLlmStall(fn, options)` — retries `LlmClient` calls that fail with an `LLM_STALL` result |
 | `provider.schema.ts` | `LlmProviderSchema` — Zod enum of supported LLM providers |
 | `client-config.schema.ts` | `LlmClientConfigSchema` — configuration for the factory |
 | `query.schema.ts` | `LlmQuerySchema` — structured query with system/user prompts |

@@ -15,3 +15,4 @@ export {
 } from "./client-config.schema.js";
 export { LlmQuerySchema, type LlmQuery } from "./query.schema.js";
 export { createLlmClient } from "./factory.js";
+export { retryOnLlmStall } from "./stall-retry.js";

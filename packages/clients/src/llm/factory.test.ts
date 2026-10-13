@@ -9,7 +9,8 @@ import { createLlmClient } from "./factory.js";
 
 const mockPrompt = vi.fn();
 
-vi.mock("./github-copilot-cli/index.js", () => ({
+vi.mock("./github-copilot-cli/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./github-copilot-cli/index.js")>()),
   GithubCopilotCliAdapter: class {
     prompt = mockPrompt;
   },
@@ -75,6 +76,27 @@ describe("createLlmClient", () => {
       expect(result.error.code).toBe("LLM_PROMPT_FAILED");
       expect(result.error.source).toBe("llm-client");
       expect(result.error.message).toContain("CLI not found");
+    }
+  });
+
+  it("keeps the LLM_STALL code when the adapter rejects with a stall", async () => {
+    mockPrompt.mockRejectedValue(
+      Object.assign(new Error("LLM request stalled (no output for 30000ms)."), {
+        code: "LLM_STALL",
+      }),
+    );
+
+    const client = createLlmClient({ provider: "github-copilot-cli" });
+    const result = await client.prompt({
+      systemPrompt: "Analyze code",
+      userPrompt: "Here is the code.",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe("LLM_STALL");
+      expect(result.error.source).toBe("llm-client");
+      expect(result.error.message).toContain("stalled");
     }
   });
 

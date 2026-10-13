@@ -2,7 +2,11 @@ import type { Result } from "@isv/domain";
 
 import type { LlmClient } from "./client.js";
 import type { LlmClientConfig } from "./client-config.schema.js";
-import { GithubCopilotCliAdapter } from "./github-copilot-cli/index.js";
+import {
+  GithubCopilotCliAdapter,
+  isLlmStallError,
+  LLM_STALL_CODE,
+} from "./github-copilot-cli/index.js";
 import type { LlmPort } from "./port.js";
 import type { LlmQuery } from "./query.schema.js";
 
@@ -34,7 +38,8 @@ function resolveAdapter(config: LlmClientConfig): LlmPort {
  * Default implementation of `LlmClient`.
  *
  * Delegates prompt invocations to the resolved adapter and maps errors
- * to the standard `Result` / `ServiceError` shape.
+ * to the standard `Result` / `ServiceError` shape. Stall timeouts keep
+ * their `LLM_STALL` code so callers can retry them (see `retryOnLlmStall`).
  */
 class DefaultLlmClient implements LlmClient {
   private readonly adapter: LlmPort;
@@ -59,7 +64,7 @@ class DefaultLlmClient implements LlmClient {
       return {
         success: false,
         error: {
-          code: "LLM_PROMPT_FAILED",
+          code: isLlmStallError(err) ? LLM_STALL_CODE : "LLM_PROMPT_FAILED",
           message: err instanceof Error ? err.message : String(err),
           source: "llm-client",
         },

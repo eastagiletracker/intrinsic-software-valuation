@@ -45,8 +45,7 @@ export interface RetryOptions {
   stallMaxRetries?: number;
   /**
    * Injected delay function — defaults to real `setTimeout`.
-   * Override in tests to avoid real waiting. When provided, p-retry's
-   * internal timing is minimised and the custom delay is invoked instead.
+   * Override in tests to avoid real waiting.
    */
   delay?: (ms: number) => Promise<void>;
   /**
@@ -92,43 +91,35 @@ export async function retryAsync<T>(
   // Track stall attempts separately to enforce stallMaxRetries.
   let stallAttempts = 0;
 
+  const sleep =
+    customDelay ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
   return pRetry(fn, {
     retries: effectiveMaxRetries,
     randomize: false,
-    // When a custom delay is provided (tests), minimise p-retry's own
-    // backoff timing and handle delays ourselves in onFailedAttempt.
-    ...(customDelay
-      ? { minTimeout: 1, maxTimeout: 1, factor: 1 }
-      : { minTimeout: baseDelayMs, factor: backoffFactor }),
-    shouldRetry: (info) => {
+    // Backoff is applied in shouldRetry below so that stall errors can use
+    // their own base delay; p-retry's single minTimeout cannot express that.
+    minTimeout: 0,
+    shouldRetry: async (info) => {
       const err = (info as FailedAttemptError).error;
+      const isStall = isStallError ? isStallError(err) : false;
 
-      // If the caller has a stall classifier, check stall exhaustion first.
-      if (isStallError && isStallError(err)) {
+      if (isStall) {
         stallAttempts++;
-        return stallAttempts <= stallMaxRetries;
+        if (stallAttempts > stallMaxRetries) return false;
+      } else if (shouldRetry && !shouldRetry(err)) {
+        return false;
       }
 
-      // Delegate to the caller's generic predicate.
-      return shouldRetry ? shouldRetry(err) : true;
+      const attempt = (info as FailedAttemptError).attemptNumber - 1; // 0-based
+      const effectiveBase = isStall ? stallBaseDelayMs : baseDelayMs;
+      await sleep(effectiveBase * Math.pow(backoffFactor, attempt));
+      return true;
     },
     onFailedAttempt: async (info) => {
-      const failedAttempt = info as FailedAttemptError;
       if (options?.onFailedAttempt) {
-        await options.onFailedAttempt(failedAttempt);
-      }
-      if (customDelay) {
-        const err = failedAttempt.error;
-        const isStall = isStallError && isStallError(err);
-
-        // Skip delay when shouldRetry would return false.
-        if (!isStall && shouldRetry && !shouldRetry(err)) return;
-        if (isStall && stallAttempts > stallMaxRetries) return;
-
-        const attempt = failedAttempt.attemptNumber - 1; // 0-based
-        const effectiveBase = isStall ? stallBaseDelayMs : baseDelayMs;
-        const delayMs = effectiveBase * Math.pow(backoffFactor, attempt);
-        await customDelay(delayMs);
+        await options.onFailedAttempt(info as FailedAttemptError);
       }
     },
   });

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   GapAnalysisResultSchema,
   type SystemBaseline,
@@ -99,7 +99,34 @@ function createMockLlm(response: string): LlmClient {
   };
 }
 
+// derived from: packages/clients/src/llm/factory.ts (stall timeouts map to LLM_STALL)
+const stallResult = {
+  success: false as const,
+  error: {
+    code: "LLM_STALL",
+    message: "LLM request stalled (no output for 30000ms).",
+    source: "llm-client",
+  },
+};
+
+/** Advance fake timers until `promise` settles (stall retries back off for seconds). */
+async function settleWithFakeTimers<T>(promise: Promise<T>): Promise<T> {
+  let done = false;
+  promise.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  for (let i = 0; i < 200 && !done; i++) {
+    await vi.advanceTimersByTimeAsync(1_000);
+  }
+  return promise;
+}
+
 describe("Gap Analyzer — boundary test", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("produces schema-valid GapAnalysisResult from mock LLM", async () => {
     const analyzer = createGapAnalyzer();
     const llm = createMockLlm(fixtureResponse);
@@ -179,6 +206,38 @@ describe("Gap Analyzer — boundary test", () => {
       llm,
     );
     expect(result.success).toBe(false);
+  });
+
+  it("retries a stalled LLM call and returns the later response", async () => {
+    vi.useFakeTimers();
+    const analyzer = createGapAnalyzer();
+    const prompt = vi
+      .fn()
+      .mockResolvedValueOnce(stallResult)
+      .mockResolvedValue({ success: true, data: fixtureResponse });
+
+    const result = await settleWithFakeTimers(
+      analyzer.analyze(mockBaseline, mockTicket, mockConfig, { prompt }),
+    );
+
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect(result.success).toBe(true);
+  });
+
+  it("returns the stall error after the stall retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const analyzer = createGapAnalyzer();
+    const prompt = vi.fn().mockResolvedValue(stallResult);
+
+    const result = await settleWithFakeTimers(
+      analyzer.analyze(mockBaseline, mockTicket, mockConfig, { prompt }),
+    );
+
+    // 1 initial + 3 stall retries
+    expect(prompt).toHaveBeenCalledTimes(4);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe("LLM_STALL");
   });
 
   it("returns error when LLM returns invalid JSON", async () => {
